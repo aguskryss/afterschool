@@ -11867,14 +11867,15 @@ def _no_cache_html(response):
     response.headers['Expires'] = '0'
     return response
 
-# / is the public landing page — a static file with no bundle, so it paints
-# before an app would have finished downloading. The old parent and counselor
-# portals redirect into the SPA rather than lingering with stale branding and
-# a second login. /admin stays reachable: roster upload, activity-roster
-# management and the end-of-year tools have not been rebuilt yet.
+# / used to be a marketing landing page pitching the product to other
+# organizations. Single-org now, so there is nothing to pitch — straight to
+# sign-in. The old parent and counselor portals redirect into the SPA rather
+# than lingering with stale branding and a second login. /admin stays
+# reachable: roster upload, activity-roster management and the end-of-year
+# tools have not been rebuilt yet.
 @app.route('/')
 def index():
-    return _no_cache_html(send_from_directory('../public', 'index.html'))
+    return redirect('/app/login')
 
 
 @app.route('/parent')

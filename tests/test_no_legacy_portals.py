@@ -80,9 +80,6 @@ print("\nThe set of hand-written HTML pages does not grow")
 # being a second product. If you are about to add one, the question to answer
 # first is why it is not a route in web/src/routes/.
 ALLOWED_PAGES = {
-    # The marketing landing page. No bundle on purpose: it paints before an app
-    # would have finished downloading.
-    'index.html',
     # Password reset. Outside the SPA because it must work for someone who has
     # no session and, by definition, cannot sign in.
     'reset-password/index.html',
