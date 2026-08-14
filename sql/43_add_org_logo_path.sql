@@ -1,0 +1,64 @@
+-- =============================================================================
+-- kikar-afterschool — Phase 43: a JCC's logo becomes a file we hold
+-- =============================================================================
+--
+-- WHAT THIS DOES
+--   Adds one nullable column to `organizations`:
+--
+--     logo_path   the object key of an uploaded logo in the `brand` bucket,
+--                 e.g. 'org-3/logo-9f2c...c1.png'
+--
+--   NULL for every existing row, and NULL keeps working: the API falls back to
+--   the `logo_url` column that is already there.
+--
+-- WHY A PATH AND NOT A URL, WHEN logo_url ALREADY EXISTS
+--   `logo_url` holds whatever someone pasted into the console — a link to an
+--   image on the JCC's own website. That works right up until the JCC redesigns
+--   their site, and then the app quietly shows a broken image to every parent,
+--   with nothing in our control to fix it. It also means a third party's server
+--   is contacted on every screen of our app.
+--
+--   An uploaded logo is a file we hold, in a bucket we own. Storing the object
+--   key rather than the full URL keeps the project host and bucket name out of
+--   the database, so moving buckets — or moving off Supabase entirely — is a
+--   configuration change instead of an UPDATE across every row.
+--
+--   The two coexist on purpose and the precedence is explicit:
+--     logo_path set    → the uploaded file wins
+--     logo_path NULL   → fall back to logo_url, if any
+--     both NULL        → the app shows the Kikar wordmark
+--
+-- WHY THE BUCKET IS PUBLIC, UNLIKE `photos`
+--   Spelled out in server/brand_storage.py, and worth repeating because the two
+--   buckets have opposite requirements and one file away from each other:
+--   photographs of children are read through short-lived signed URLs and must
+--   never be reachable by URL alone. A logo has to load on every screen without
+--   a round trip to re-sign, and inside invitation email opened weeks later by
+--   someone with no session. Signed URLs cannot do the second one at all.
+--
+-- NO CONSTRAINT ON THE VALUE
+--   Unlike sql/41's sender columns, there is nothing here that a bad value
+--   could forge. A malformed path yields a broken image; it cannot send mail as
+--   anyone or reach another tenant's data. The bucket layout is enforced where
+--   it is created (brand_storage.build_path prefixes every key with the
+--   organization id), not by a CHECK that would have to be kept in step with it.
+--
+-- MIRRORED IN init_db()
+--   Per §6 of CLAUDE.md, server/tenancy.py runs the same statement idempotently
+--   on every boot, so a deploy that predates this file converges anyway.
+--
+-- BEFORE THIS IS USEFUL
+--   Create the bucket. In Supabase → Storage → New bucket, named `brand`
+--   (or whatever SUPABASE_BRAND_BUCKET is set to), and marked **public**. A
+--   private bucket here does not fail loudly — it serves 400s in place of every
+--   logo, in the app and in email both.
+--
+-- ROLLBACK
+--   sql/44_rollback_org_logo_path.sql
+-- =============================================================================
+
+BEGIN;
+
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS logo_path TEXT;
+
+COMMIT;

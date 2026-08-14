@@ -1,0 +1,1617 @@
+<meta charset="utf-8" />
+<title>Counselor tablet — Today &amp; My day</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<style>
+/* ═══════════════════════════════════════════════════════════════════════
+   Figtree Variable, inlined. The app already uses it (web/src/styles/theme.css
+   imports @fontsource-variable/figtree); a published artifact cannot reach a
+   font CDN, so the latin subset travels with the file. Without this the whole
+   mockup silently falls back to a system grotesk and every measurement below
+   — column widths, truncation points, row heights — is measured against a
+   typeface the product does not use.
+   ═══════════════════════════════════════════════════════════════════════ */
+@font-face {
+  font-family: 'Figtree Variable';
+  font-style: normal;
+  font-display: block;
+  font-weight: 300 900;
+  src: url(data:font/woff2;base64,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) format('woff2');
+}
+
+/* ── Page chrome tokens (theme-aware — this is the review page, not the app) */
+:root {
+  --page-bg: #f2f4f8;
+  --page-panel: #ffffff;
+  --page-ink: #141b2b;
+  --page-ink-soft: #55627a;
+  --page-ink-faint: #7d8798;
+  --page-line: #dfe4ec;
+  --page-accent: #2f6fed;
+  --page-code-bg: #eef1f6;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page-bg: #10141d;
+    --page-panel: #171d29;
+    --page-ink: #eef2f8;
+    --page-ink-soft: #a9b4c6;
+    --page-ink-faint: #7d8798;
+    --page-line: #28303f;
+    --page-accent: #7ba6ff;
+    --page-code-bg: #1e2532;
+  }
+}
+:root[data-theme='dark'] {
+  --page-bg: #10141d;
+  --page-panel: #171d29;
+  --page-ink: #eef2f8;
+  --page-ink-soft: #a9b4c6;
+  --page-ink-faint: #7d8798;
+  --page-line: #28303f;
+  --page-accent: #7ba6ff;
+  --page-code-bg: #1e2532;
+}
+:root[data-theme='light'] {
+  --page-bg: #f2f4f8;
+  --page-panel: #ffffff;
+  --page-ink: #141b2b;
+  --page-ink-soft: #55627a;
+  --page-ink-faint: #7d8798;
+  --page-line: #dfe4ec;
+  --page-accent: #2f6fed;
+  --page-code-bg: #eef1f6;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--page-bg);
+  color: var(--page-ink);
+  font-family: 'Figtree Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-synthesis-weight: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 1240px; margin: 0 auto; padding: 40px 24px 96px; }
+
+.masthead { display: flex; flex-direction: column; gap: 10px; margin-bottom: 28px; }
+.masthead .eyebrow {
+  font-size: 12px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--page-accent); margin: 0;
+}
+.masthead h1 {
+  margin: 0; font-size: clamp(28px, 4vw, 40px); font-weight: 850;
+  letter-spacing: -0.025em; line-height: 1.05; text-wrap: balance;
+}
+.masthead p { margin: 0; max-width: 68ch; font-size: 16px; line-height: 1.6; color: var(--page-ink-soft); }
+
+/* ── Mockup controls (deliberately not styled like the product) ─────────── */
+.controls {
+  display: flex; flex-wrap: wrap; gap: 20px 28px; align-items: flex-end;
+  padding: 16px 18px; margin-bottom: 18px;
+  background: var(--page-panel); border: 1px solid var(--page-line); border-radius: 14px;
+}
+.ctl { display: flex; flex-direction: column; gap: 7px; }
+.ctl > span {
+  font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--page-ink-faint);
+}
+.seg { display: flex; gap: 4px; padding: 4px; background: var(--page-bg); border-radius: 10px; }
+.seg button {
+  font: inherit; font-size: 13.5px; font-weight: 700; color: var(--page-ink-soft);
+  background: transparent; border: 0; border-radius: 7px; padding: 8px 12px; cursor: pointer;
+  white-space: nowrap; line-height: 1.2;
+}
+.seg button:hover { color: var(--page-ink); }
+.seg button[aria-pressed='true'] { background: var(--page-accent); color: #fff; }
+:root[data-theme='dark'] .seg button[aria-pressed='true'] { color: #0e1420; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .seg button[aria-pressed='true'] { color: #0e1420; }
+}
+.seg button small { display: block; font-size: 11px; font-weight: 600; opacity: 0.75; }
+
+/* ── The device stage ───────────────────────────────────────────────────── */
+.stagewrap { position: relative; margin-bottom: 12px; }
+.stagefit { transform-origin: top left; }
+.stage {
+  container-type: inline-size;
+  width: 1180px; height: 820px;
+  border-radius: 18px; overflow: hidden;
+  background: #f6f8fb;
+  box-shadow: 0 2px 6px rgb(20 27 43 / 0.10), 0 24px 60px rgb(20 27 43 / 0.22);
+  /* The stage is the product. The product is light-only by design
+     (theme.css defines one canvas), so the stage does not follow the
+     viewer's theme — the chrome around it does. */
+  color-scheme: light;
+}
+.stagecap {
+  display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  font-size: 13px; color: var(--page-ink-faint); font-weight: 600; margin-bottom: 34px;
+}
+.stagecap b { color: var(--page-ink-soft); font-weight: 800; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   THE APP. Everything below is scoped `.k-` and uses only the tokens from
+   web/src/styles/theme.css.
+   ═══════════════════════════════════════════════════════════════════════ */
+.stage {
+  --canvas-50: #f6f8fb; --canvas-100: #eef2f7; --canvas-200: #e2e8f0;
+  --ink-300: #a8b1bd; --ink-400: #8794a3; --ink-500: #64748b; --ink-600: #4a5568;
+  --ink-700: #364152; --ink-800: #232d3f; --ink-900: #141b2b;
+  --sky-50: #eef4ff; --sky-100: #dbe6ff; --sky-200: #b9ceff;
+  --sky-500: #2f6fed; --sky-600: #2058ce; --sky-700: #1a46a3;
+  --leaf-50: #e8f9ef; --leaf-100: #c9f0d9; --leaf-500: #16a34a; --leaf-600: #12833c; --leaf-700: #0d6630;
+  --sun-50: #fff7e6; --sun-100: #ffeac0; --sun-200: #fddc93; --sun-500: #f59e0b; --sun-600: #c97f06; --sun-700: #9c6104;
+  --berry-50: #ffeef2; --berry-100: #ffd6de; --berry-200: #ffb8c6; --berry-500: #e11d48; --berry-600: #bd1239; --berry-700: #970c2c;
+  --shadow-soft: 0 1px 2px rgb(20 27 43 / 0.04), 0 6px 20px rgb(20 27 43 / 0.06);
+  --rail-w: 208px;
+}
+.stage.is-rail-collapsed { --rail-w: 84px; }
+
+.k-app {
+  display: flex; height: 100%; width: 100%;
+  background: var(--canvas-50); color: var(--ink-900);
+  font-size: 16px; line-height: 1.35;
+}
+/* Spacing comes from flex/grid `gap` only. Without this reset the UA's 1em
+   margins on <p> stack on top of every gap and a child row silhouettes at
+   101px instead of 66 — the exact "three stacked lines per child" this
+   redesign is undoing. */
+.k-app :where(p, h1, h2, h3, h4) { margin: 0; }
+.k-app button { font: inherit; color: inherit; }
+.k-app :focus-visible { outline: 3px solid var(--sky-500); outline-offset: 2px; border-radius: 10px; }
+.k-num { font-variant-numeric: tabular-nums; }
+
+/* ── Left rail ──────────────────────────────────────────────────────────── */
+.k-rail {
+  width: var(--rail-w); flex: none; display: flex; flex-direction: column;
+  background: #fff; border-right: 1px solid var(--canvas-200);
+  padding: 14px 12px; gap: 6px; transition: width 0.18s ease;
+}
+.k-rail-top { display: flex; align-items: center; gap: 10px; padding: 4px 6px 14px; }
+.k-mark {
+  width: 40px; height: 40px; flex: none; border-radius: 12px; background: var(--ink-900);
+  color: #fff; display: grid; place-items: center;
+  font-family: ui-sans-serif, system-ui, sans-serif; font-weight: 800; font-size: 15px; letter-spacing: 0.02em;
+}
+.k-mark-name { font-size: 15px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.15; }
+.k-mark-org { font-size: 12.5px; font-weight: 600; color: var(--ink-400); }
+.is-rail-collapsed .k-hide-collapsed { display: none; }
+
+.k-navitem {
+  display: flex; align-items: center; gap: 12px;
+  min-height: 56px; padding: 0 12px; border: 0; border-radius: 14px;
+  background: transparent; color: var(--ink-600); font-weight: 700; font-size: 16px;
+  cursor: pointer; text-align: left; width: 100%;
+}
+.k-navitem svg { width: 24px; height: 24px; flex: none; }
+.k-navitem:active { background: var(--canvas-100); }
+.k-navitem[aria-current='page'] { background: var(--sky-50); color: var(--sky-700); }
+.k-navitem[aria-current='page'] svg { color: var(--sky-500); }
+.k-navbadge {
+  margin-left: auto; min-width: 26px; height: 26px; padding: 0 7px; border-radius: 999px;
+  background: var(--sun-100); color: var(--sun-700); font-size: 13px; font-weight: 800;
+  display: grid; place-items: center;
+}
+.is-rail-collapsed .k-navitem { justify-content: center; padding: 0; }
+.is-rail-collapsed .k-navbadge {
+  position: absolute; margin: 0; transform: translate(16px, -16px);
+  min-width: 20px; height: 20px; font-size: 11px;
+}
+.is-rail-collapsed .k-navitem { position: relative; }
+
+.k-rail-foot { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--canvas-200); }
+.k-me { display: flex; align-items: center; gap: 10px; padding: 8px 6px 4px; }
+.k-avatar {
+  width: 40px; height: 40px; flex: none; border-radius: 999px; display: grid; place-items: center;
+  background: var(--sky-100); color: var(--sky-700); font-weight: 800; font-size: 15px;
+}
+.k-me-name { font-size: 15.5px; font-weight: 800; line-height: 1.2; }
+.k-me-role { font-size: 12.5px; font-weight: 600; color: var(--ink-400); }
+.k-signout {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; min-height: 48px; margin-top: 8px; border-radius: 999px;
+  border: 2px solid var(--canvas-200); background: #fff; color: var(--ink-600);
+  font-size: 14.5px; font-weight: 700; cursor: pointer;
+}
+.k-signout:active { background: var(--canvas-100); }
+.k-signout svg { width: 18px; height: 18px; }
+.k-railtoggle {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; min-height: 44px; margin-top: 6px; border: 0; border-radius: 12px;
+  background: transparent; color: var(--ink-400); font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.k-railtoggle svg { width: 18px; height: 18px; flex: none; }
+
+/* ── Screen frame ───────────────────────────────────────────────────────── */
+.k-main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+.k-topbar {
+  flex: none; display: flex; align-items: center; gap: 20px;
+  padding: 14px 24px 12px; background: var(--canvas-50);
+}
+.k-title { font-size: 30px; font-weight: 850; letter-spacing: -0.03em; line-height: 1; }
+.k-subtitle { font-size: 14.5px; font-weight: 650; color: var(--ink-500); margin-top: 4px; }
+.k-now {
+  margin-left: auto; display: flex; align-items: center; gap: 14px;
+  background: #fff; border-radius: 16px; padding: 9px 18px; box-shadow: var(--shadow-soft);
+}
+.k-now-clock { font-size: 27px; font-weight: 850; letter-spacing: -0.02em; line-height: 1.05; }
+.k-now-label { font-size: 11px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-400); line-height: 1.3; }
+.k-now-block { font-size: 15px; font-weight: 750; color: var(--ink-700); line-height: 1.3; }
+.k-now-sub { font-size: 13px; font-weight: 600; color: var(--ink-400); line-height: 1.3; }
+.k-now-div { width: 1px; align-self: stretch; background: var(--canvas-200); }
+
+/* ── Shared atoms ───────────────────────────────────────────────────────── */
+.k-card { background: #fff; border-radius: 20px; box-shadow: var(--shadow-soft); }
+.k-pill {
+  display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 11px;
+  border-radius: 999px; font-size: 13px; font-weight: 800; white-space: nowrap;
+}
+.k-pill--sun { background: var(--sun-50); color: var(--sun-700); }
+.k-pill--leaf { background: var(--leaf-50); color: var(--leaf-700); }
+.k-pill--sky { background: var(--sky-50); color: var(--sky-700); }
+.k-pill--ink { background: var(--canvas-100); color: var(--ink-600); }
+.k-pill--berry { background: var(--berry-50); color: var(--berry-700); }
+
+.k-bar { height: 8px; border-radius: 999px; background: var(--canvas-200); overflow: hidden; }
+.k-bar > i { display: block; height: 100%; border-radius: 999px; background: var(--sky-500); }
+.k-bar--leaf > i { background: var(--leaf-500); }
+
+.k-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 48px; padding: 0 18px; border: 0; border-radius: 999px;
+  font-size: 15.5px; font-weight: 800; cursor: pointer; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.k-btn svg { width: 18px; height: 18px; flex: none; }
+.k-btn--primary { background: var(--sky-500); color: #fff; }
+.k-btn--primary:active { background: var(--sky-700); }
+.k-btn--soft { background: var(--sky-50); color: var(--sky-700); }
+.k-btn--soft:active { background: var(--sky-100); }
+.k-btn--outline { background: #fff; border: 2px solid var(--canvas-200); color: var(--ink-700); }
+.k-btn--outline:active { background: var(--canvas-100); }
+.k-btn--full { width: 100%; }
+.k-btn--sm { min-height: 44px; font-size: 14.5px; padding: 0 14px; }
+
+/* ═══ SCREEN 1 — TODAY ══════════════════════════════════════════════════ */
+.k-today { flex: 1; min-height: 0; display: flex; gap: 20px; padding: 4px 24px 20px; overflow: hidden; }
+/* min-height/overflow so that if a shorter tablet (768) cannot fit the grid,
+   it scrolls inside its own column instead of being silently clipped by the
+   frame. Clipped content looks like content that does not exist. */
+.k-today-main { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+
+.k-phasebar { display: flex; align-items: center; gap: 10px; }
+.k-phases { display: flex; gap: 6px; padding: 5px; background: var(--canvas-100); border-radius: 999px; }
+.k-phase {
+  display: flex; align-items: center; gap: 8px; min-height: 46px; padding: 0 16px;
+  border: 0; border-radius: 999px; background: transparent; color: var(--ink-500);
+  font-size: 15px; font-weight: 800; cursor: pointer; white-space: nowrap;
+}
+.k-phase[aria-pressed='true'] { background: #fff; color: var(--ink-900); box-shadow: var(--shadow-soft); }
+.k-phase .k-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--sky-500); }
+.k-phase-hint { font-size: 14px; font-weight: 650; color: var(--ink-500); }
+
+.k-boardhead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 0 4px; }
+.k-boardhead .k-big { font-size: 19px; font-weight: 850; letter-spacing: -0.02em; }
+.k-boardhead .k-note { font-size: 13.5px; font-weight: 650; color: var(--ink-400); }
+
+.k-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; align-content: start; }
+.k-school { display: flex; flex-direction: column; gap: 9px; padding: 15px 16px 14px; }
+/* The school name owns a whole line. It is the thing a counselor is hunting
+   for, and sharing the line with the status pill was cutting "Hillel
+   Community Day" down to "Hillel Community …". The pill moves down beside
+   the ratio it is the remainder of, which is also where it belongs. */
+.k-school-head { display: flex; align-items: center; gap: 10px; }
+.k-school-head .k-bar { flex: 1; min-width: 40px; }
+.k-school-name { font-size: 19px; font-weight: 850; letter-spacing: -0.025em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.k-school-head .k-pill { margin-left: auto; flex: none; }
+.k-school-metric { font-size: 17px; font-weight: 750; color: var(--ink-700); min-width: 0; }
+.k-school-metric b { font-weight: 850; color: var(--ink-900); }
+.k-school-wave { font-size: 13.5px; font-weight: 700; color: var(--ink-400); }
+
+/* ── Exceptions panel ───────────────────────────────────────────────────── */
+.k-panel { width: 336px; flex: none; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; padding-bottom: 4px; }
+.k-panel-head { display: flex; align-items: center; gap: 8px; padding: 0 4px; }
+.k-panel-head h2 { margin: 0; font-size: 15px; font-weight: 850; letter-spacing: 0.02em; }
+.k-sect { padding: 14px 15px; display: flex; flex-direction: column; gap: 10px; }
+.k-sect-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 850; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-400);
+}
+.k-sect-title svg { width: 16px; height: 16px; flex: none; }
+.k-sect-title span:first-of-type { min-width: 0; }
+.k-sect-n {
+  margin-left: auto; flex: none; min-width: 24px; height: 24px; padding: 0 7px; border-radius: 8px;
+  background: var(--canvas-100); color: var(--ink-600); font-size: 13px; letter-spacing: 0;
+  display: grid; place-items: center;
+}
+.k-sect--med .k-sect-n { background: var(--berry-100); color: var(--berry-700); }
+.k-sect--alert { border-left: 4px solid var(--sun-500); }
+.k-sect--med { border-left: 4px solid var(--berry-500); }
+.k-sect--med .k-sect-title { color: var(--berry-600); }
+.k-sect--ok { background: var(--leaf-50); }
+
+.k-exc { display: flex; align-items: center; gap: 10px; }
+.k-exc + .k-exc { border-top: 1px solid var(--canvas-100); padding-top: 10px; }
+.k-exc-main { min-width: 0; flex: 1; }
+.k-exc-name { font-size: 16px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.k-exc-meta { font-size: 13.5px; font-weight: 650; color: var(--ink-500); margin-top: 1px; }
+.k-exc-late { font-size: 15px; font-weight: 850; color: var(--sun-700); white-space: nowrap; }
+.k-exc-late--berry { color: var(--berry-600); }
+
+.k-ok-line { display: flex; align-items: center; gap: 10px; }
+.k-ok-line svg { width: 22px; height: 22px; color: var(--leaf-600); flex: none; }
+.k-ok-title { font-size: 16px; font-weight: 800; color: var(--leaf-700); }
+.k-ok-sub { font-size: 13.5px; font-weight: 650; color: var(--leaf-700); opacity: 0.85; margin-top: 2px; }
+
+.k-med { display: flex; gap: 10px; align-items: flex-start; }
+.k-med + .k-med { border-top: 1px solid var(--berry-100); padding-top: 10px; }
+.k-med-name { font-size: 16px; font-weight: 800; }
+.k-med-what { font-size: 13.5px; font-weight: 800; color: var(--berry-600); letter-spacing: 0.02em; }
+.k-med-where { font-size: 13px; font-weight: 650; color: var(--ink-500); margin-top: 2px; }
+
+/* ═══ SCREEN 2 — MY DAY ═════════════════════════════════════════════════ */
+/* The summary is the header's second line, not a band of its own. A separate
+   white strip cost 75px of height to say four numbers — on a screen whose
+   entire argument is that vertical space is the scarce dimension. */
+.k-topbar--myday { flex-wrap: wrap; padding-bottom: 10px; }
+.k-summary {
+  flex: none; width: 100%; display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+}
+.k-fact { display: flex; align-items: baseline; gap: 6px; font-size: 14.5px; font-weight: 700; color: var(--ink-600); }
+.k-fact b { font-size: 17px; font-weight: 850; color: var(--ink-900); }
+.k-fact-sep { width: 1px; height: 20px; background: var(--canvas-200); }
+.k-fact--med { color: var(--berry-600); }
+.k-fact--med b { color: var(--berry-600); }
+.k-chainnote { margin-left: auto; font-size: 13.5px; font-weight: 700; color: var(--ink-500); display: flex; align-items: center; gap: 6px; }
+.k-chainnote svg { width: 16px; height: 16px; color: var(--sky-500); }
+
+.k-myday { flex: 1; min-height: 0; display: flex; gap: 20px; padding: 0 24px 20px; }
+
+/* Left: the day as a timeline */
+.k-tl { width: 268px; flex: none; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+.k-tl-head { font-size: 12px; font-weight: 850; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-400); padding: 0 4px; }
+.k-tlitem {
+  position: relative; display: flex; flex-direction: column; gap: 5px; width: 100%;
+  padding: 13px 14px 13px 16px; border: 0; border-radius: 18px; background: #fff;
+  box-shadow: var(--shadow-soft); cursor: pointer; text-align: left;
+  border-left: 5px solid var(--canvas-200);
+}
+.k-tlitem:active { background: var(--canvas-100); }
+.k-tlitem[aria-current='true'] { border-left-color: var(--sky-500); box-shadow: 0 0 0 2px var(--sky-500), var(--shadow-soft); }
+.k-tlitem.is-done { border-left-color: var(--leaf-500); }
+.k-tlitem.is-done .k-tl-name, .k-tlitem.is-done .k-tl-time { color: var(--ink-500); }
+.k-tlitem.is-upcoming { opacity: 0.9; }
+.k-tl-time { font-size: 13.5px; font-weight: 800; color: var(--ink-500); letter-spacing: 0.01em; }
+.k-tl-name { font-size: 19px; font-weight: 850; letter-spacing: -0.02em; line-height: 1.15; }
+.k-tl-meta { font-size: 13.5px; font-weight: 650; color: var(--ink-400); }
+.k-tl-state { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.k-tl-state svg { width: 16px; height: 16px; }
+
+/* Right: one class, in full */
+.k-classpane { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.k-classhead { padding: 14px 18px 14px; display: flex; flex-direction: column; gap: 10px; }
+.k-classhead-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.k-classname { font-size: 25px; font-weight: 850; letter-spacing: -0.03em; line-height: 1; }
+.k-classwhen { font-size: 14.5px; font-weight: 700; color: var(--ink-500); }
+.k-classprog { display: flex; align-items: center; gap: 14px; }
+.k-classprog-label { font-size: 15px; font-weight: 800; white-space: nowrap; }
+.k-classprog-label span { color: var(--ink-500); font-weight: 700; }
+.k-classprog .k-bar { flex: 1; min-width: 60px; }
+.k-classprog-in { font-size: 13.5px; font-weight: 700; color: var(--ink-400); white-space: nowrap; }
+
+/* The scroll lives on the wrapper, never on the multicolumn box itself: a
+   multicol container with a constrained height spills into EXTRA columns
+   sideways instead of scrolling down, which turns a 16-child class into a
+   horizontal scroll. Unconstrained height here means the browser balances two
+   columns and the wrapper scrolls vertically if the class is big enough. */
+.k-routing-scroll { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 4px; }
+.k-routing { columns: 2; column-gap: 16px; }
+.k-group { break-inside: avoid; background: #fff; border-radius: 18px; box-shadow: var(--shadow-soft); margin-bottom: 16px; overflow: hidden; }
+.k-group-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 14px; border-left: 5px solid var(--canvas-200); }
+.k-group-name { line-height: 1.2; }
+.k-group--parents .k-group-head { border-left-color: var(--leaf-500); }
+.k-group--next .k-group-head { border-left-color: var(--sky-500); }
+.k-group-name { font-size: 16.5px; font-weight: 850; letter-spacing: -0.015em; line-height: 1.2; }
+.k-group-when { font-size: 13px; font-weight: 700; color: var(--ink-400); margin-top: 2px; }
+.k-group-count {
+  margin-left: auto; flex: none; min-width: 34px; height: 34px; padding: 0 9px; border-radius: 10px;
+  background: var(--canvas-100); color: var(--ink-700); font-size: 15px; font-weight: 850;
+  display: grid; place-items: center;
+}
+.k-group-action { padding: 0 12px 11px; }
+.k-group-action .k-btn { min-height: 46px; }
+
+.k-kid { display: flex; align-items: center; gap: 10px; padding: 5px 12px 5px 14px; border-top: 1px solid var(--canvas-100); }
+.k-kid-main { flex: 1; min-width: 0; }
+.k-kid-name { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.k-kid-meta { font-size: 14px; font-weight: 650; color: var(--ink-500); line-height: 1.25; }
+.k-kid-time { flex: none; font-size: 16px; font-weight: 850; letter-spacing: -0.01em; }
+.k-check {
+  flex: none; width: 48px; height: 48px; border-radius: 14px; cursor: pointer;
+  border: 2px solid var(--canvas-200); background: #fff; color: #fff;
+  display: grid; place-items: center;
+}
+/* Hidden with opacity, not `color: transparent` — `.k-app button { color:
+   inherit }` is the more specific selector and was repainting the tick black,
+   so every unchecked box read as already confirmed. */
+.k-check svg { width: 26px; height: 26px; opacity: 0; }
+.k-check[aria-pressed='true'] { background: var(--leaf-500); border-color: var(--leaf-500); }
+.k-check[aria-pressed='true'] svg { opacity: 1; }
+.k-check:active { border-color: var(--sky-500); }
+
+/* A chained arrival gets its own line rather than a chip beside the name: the
+   name is ellipsised, so a chip there is the first thing to disappear — and it
+   disappeared on the one child in the day who needs it. One child in 29 has
+   this, so the row costs nothing. */
+.k-chain-bar {
+  display: flex; align-items: center; gap: 8px; margin: 0 13px 8px; padding: 7px 11px;
+  border-radius: 10px; background: var(--sky-50); color: var(--sky-700);
+  font-size: 13.5px; font-weight: 800;
+}
+.k-chain-bar svg { width: 16px; height: 16px; flex: none; }
+
+.k-allergy {
+  display: flex; align-items: center; gap: 8px; width: calc(100% - 26px); margin: 0 13px 9px;
+  min-height: 48px; padding: 0 12px; border: 0; border-radius: 12px;
+  background: var(--berry-50); color: var(--berry-700); cursor: pointer; text-align: left;
+}
+.k-allergy svg { width: 20px; height: 20px; flex: none; color: var(--berry-500); }
+.k-allergy-what { font-size: 14.5px; font-weight: 850; letter-spacing: 0.03em; }
+.k-allergy-more { margin-left: auto; font-size: 12.5px; font-weight: 750; opacity: 0.8; }
+.k-allergy-detail {
+  margin: -4px 13px 10px; padding: 11px 13px; border-radius: 12px;
+  background: var(--berry-50); border: 2px solid var(--berry-200); color: var(--berry-700);
+  font-size: 14px; font-weight: 700; line-height: 1.45;
+}
+.k-allergy-detail b { display: block; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 3px; }
+
+.k-group.is-done { background: var(--leaf-50); box-shadow: none; }
+.k-group.is-done .k-group-head { border-left-color: var(--leaf-500); }
+.k-donebar { display: flex; align-items: center; gap: 10px; padding: 11px 12px 11px 14px; border-left: 5px solid var(--leaf-500); }
+.k-donebar svg { width: 22px; height: 22px; color: var(--leaf-600); flex: none; }
+.k-done-name { font-size: 16px; font-weight: 850; color: var(--leaf-700); }
+.k-done-sub { font-size: 13px; font-weight: 700; color: var(--leaf-700); opacity: 0.85; margin-top: 1px; }
+.k-med-chip {
+  margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 4px;
+  height: 28px; padding: 0 9px; border-radius: 999px;
+  background: var(--berry-50); color: var(--berry-700); font-size: 13.5px; font-weight: 850;
+}
+.k-med-chip svg { width: 15px; height: 15px; color: var(--berry-500); }
+.k-med-chip + .k-undo { margin-left: 8px; }
+.k-undo {
+  margin-left: auto; flex: none; min-height: 44px; padding: 0 14px; border-radius: 999px;
+  border: 2px solid var(--leaf-100); background: transparent; color: var(--leaf-700);
+  font-size: 14px; font-weight: 800; cursor: pointer;
+}
+
+/* ── Toast (mockup feedback for actions that would navigate) ────────────── */
+.k-toast {
+  position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%);
+  background: var(--ink-900); color: #fff; padding: 12px 20px; border-radius: 999px;
+  font-size: 15px; font-weight: 700; box-shadow: 0 12px 30px rgb(20 27 43 / 0.3);
+  opacity: 0; pointer-events: none; transition: opacity 0.15s ease;
+}
+.k-toast.is-on { opacity: 1; }
+
+/* ═══ SHORTER LANDSCAPE TABLET (≈1024 × 768) ═══════════════════════════
+   At 1024 the rail + a 336px panel left the grid 412px, which minmax(250px)
+   resolves to a SINGLE column — six schools stacked and five of them off the
+   bottom, the exact failure this redesign exists to fix. The panel gives up
+   36px and the grid drops its minimum so two columns survive. */
+@container (max-width: 1100px) {
+  .k-panel { width: 300px; }
+  .k-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .k-tl { width: 236px; }
+}
+
+/* ═══ PORTRAIT (≈820 × 1180) — container queries, so the reflow is real ══ */
+@container (max-width: 900px) {
+  .stage { --rail-w: 84px; }
+  .k-today { flex-direction: column; padding-bottom: 16px; }
+  /* The panel keeps its sections side by side rather than stacking. Stacked,
+     three exception cards at full width ran ~700px tall and pushed the school
+     grid off the bottom of an 1180px screen — the panel would have cost the
+     grid the very thing the redesign is for. */
+  .k-panel {
+    width: auto; order: -1; flex: none; overflow: visible;
+    flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 12px;
+  }
+  .k-panel-head { width: 100%; }
+  .k-panel > .k-card { flex: 1 1 200px; min-width: 0; }
+  .k-panel .k-sect { padding: 12px 14px; }
+  .k-today-main { flex: none; }
+  .k-grid { grid-template-columns: repeat(2, 1fr); }
+  .k-myday { flex-direction: column; }
+  .k-tl { width: auto; flex: none; flex-direction: row; overflow-x: auto; overflow-y: visible; }
+  .k-tl-head { display: none; }
+  .k-tlitem { flex: 1; min-width: 190px; }
+  .k-classpane { flex: 1; min-height: 0; }
+  .k-title { font-size: 26px; }
+  .k-phasebar { flex-wrap: wrap; }
+}
+
+/* ═══ NOTES ═════════════════════════════════════════════════════════════ */
+.notes { display: flex; flex-direction: column; gap: 34px; margin-top: 8px; }
+.note { background: var(--page-panel); border: 1px solid var(--page-line); border-radius: 16px; padding: 26px 28px; }
+.note > h2 {
+  margin: 0 0 4px; font-size: 22px; font-weight: 850; letter-spacing: -0.02em; text-wrap: balance;
+}
+.note > .lede { margin: 0 0 18px; font-size: 15px; color: var(--page-ink-soft); max-width: 70ch; line-height: 1.6; }
+.note h3 {
+  margin: 24px 0 8px; font-size: 12px; font-weight: 850; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--page-ink-faint);
+}
+.note h3:first-of-type { margin-top: 0; }
+.note p { margin: 0 0 12px; font-size: 15px; line-height: 1.62; color: var(--page-ink-soft); max-width: 74ch; }
+.note strong { color: var(--page-ink); font-weight: 750; }
+.note code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;
+  background: var(--page-code-bg); padding: 1px 6px; border-radius: 5px;
+}
+.tablewrap { overflow-x: auto; margin-bottom: 14px; }
+table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 14.5px; }
+th, td { text-align: left; padding: 10px 14px 10px 0; border-bottom: 1px solid var(--page-line); vertical-align: top; line-height: 1.5; }
+th { font-size: 12px; font-weight: 850; letter-spacing: 0.07em; text-transform: uppercase; color: var(--page-ink-faint); }
+td { color: var(--page-ink-soft); }
+td:first-child { color: var(--page-ink); font-weight: 700; white-space: nowrap; }
+.decisions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.decisions li { display: grid; grid-template-columns: 210px 1fr; gap: 4px 22px; font-size: 15px; line-height: 1.6; }
+.decisions b { font-weight: 800; color: var(--page-ink); }
+.decisions span { color: var(--page-ink-soft); }
+@media (max-width: 700px) { .decisions li { grid-template-columns: 1fr; gap: 2px; } }
+.dont { border-left: 4px solid #e11d48; padding-left: 16px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <p class="eyebrow">Kikar Afterschool · counselor · tablet</p>
+    <h1>Today &amp; My day, rebuilt for a landscape tablet</h1>
+    <p>
+      Two counselor screens redesigned for a 1180×820 iPad held in one arm on a gym floor: a left rail
+      instead of a bottom tab bar, a school grid that fits every school without scrolling, and a routing
+      board that groups children by where they are going instead of by first name. Same visual language —
+      light canvas, white cards, one blue accent, red for medicine only. Every control below is live.
+    </p>
+  </header>
+
+  <div class="controls">
+    <div class="ctl">
+      <span>Screen</span>
+      <div class="seg" id="seg-screen">
+        <button data-screen="today" aria-pressed="true">Today</button>
+        <button data-screen="myday" aria-pressed="false">My day</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <span>Time of day</span>
+      <div class="seg" id="seg-phase">
+        <button data-phase="arrival" aria-pressed="true">Arrival<small>3:12p</small></button>
+        <button data-phase="program" aria-pressed="false">In program<small>4:10p</small></button>
+        <button data-phase="dismissal" aria-pressed="false">Dismissal<small>5:18p</small></button>
+      </div>
+    </div>
+    <div class="ctl">
+      <span>Orientation</span>
+      <div class="seg" id="seg-orient">
+        <button data-orient="land" aria-pressed="true">Landscape<small>1180 × 820</small></button>
+        <button data-orient="port" aria-pressed="false">Portrait<small>820 × 1180</small></button>
+      </div>
+    </div>
+    <div class="ctl">
+      <span>Rail</span>
+      <div class="seg" id="seg-rail">
+        <button data-rail="open" aria-pressed="true">Icon + label</button>
+        <button data-rail="mini" aria-pressed="false">Icons only</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="stagewrap">
+    <div class="stagefit" id="stagefit">
+      <div class="stage" id="stage"><div class="k-app" id="app"></div><div class="k-toast" id="toast"></div></div>
+    </div>
+  </div>
+  <p class="stagecap">
+    <span>Shown at true pixel size, scaled to fit this window. <b id="capsize">1180 × 820</b></span>
+    <span>Tap anything: presence controls, group confirmations, allergy chips, the phase switcher, the rail.</span>
+  </p>
+
+  <div class="notes" id="notes"></div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════
+   ICONS — functional only. Every glyph here either names a destination the
+   label cannot (nav), or encodes a state the text repeats (check, alert).
+   Nothing decorative.
+   ═══════════════════════════════════════════════════════════════════════ */
+const I = {
+  home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M9.5 20v-6h5v6"/></svg>',
+  day: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="3"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/><path d="M12 12.5v3l2 1.5"/></svg>',
+  kids: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.4"/><path d="M2.6 20a6.6 6.6 0 0 1 12.8 0"/><circle cx="17.5" cy="9" r="2.6"/><path d="M16 14.4A5.4 5.4 0 0 1 21.6 20"/></svg>',
+  photos: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="19" height="14" rx="3"/><circle cx="12" cy="12.5" r="3.6"/><path d="M7 5.5l1.4-2.2h7.2L17 5.5"/></svg>',
+  out: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 8l-4 4 4 4M6 12h9"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5l5 5 10-11"/></svg>',
+  checkCircle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M8 12.4l2.8 2.8L16.2 9"/></svg>',
+  alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.6 1.8 20.4h20.4Z"/><path d="M12 9.4v4.6M12 17.4h.01"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 6.6V12l3.6 2.2"/></svg>',
+  arrowIn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h14M12.5 6l6 6-6 6"/></svg>',
+  car: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16.5V12l2-5h12l2 5v4.5"/><path d="M3 16.5h18"/><circle cx="7.5" cy="17.5" r="1.6"/><circle cx="16.5" cy="17.5" r="1.6"/></svg>',
+  chevrons: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14 7l-5 5 5 5M19 7l-5 5 5 5"/></svg>',
+  chevronsR: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 7l5 5-5 5M5 7l5 5-5 5"/></svg>',
+};
+
+/* ═══════════════════════════════════════════════════════════════════════
+   SAMPLE DATA — one afternoon, internally consistent across both screens.
+   6 schools · 158 children scheduled · dismissal waves 3p / 4p / 5p / 6p.
+   Angelie Fischer runs 3 classes: 5, 16 and 9 children, 29 distinct
+   (Maya Feldman is in two consecutive ones). Exactly 2 children carry a
+   real allergy: Noa Ackerman and Eli Vargas.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+const ME = { name: 'Angelie Fischer', initials: 'AF', role: 'Counselor', org: 'JCC of Southern Nevada' };
+const DATE_LONG = 'Thursday, October 9';
+
+const PHASES = {
+  arrival:   { clock: '3:12p', block: '3:00 – 4:00 block',  what: 'Arrival &amp; first classes', label: 'Arrival',     job: 'Who has checked in.' },
+  program:   { clock: '4:10p', block: '4:00 – 5:00 block',  what: 'Classes &amp; care rooms',    label: 'In program',  job: 'What is happening right now.' },
+  dismissal: { clock: '5:18p', block: '5:00 – 6:00 block',  what: 'Dismissal &amp; care',        label: 'Dismissal',   job: 'Who leaves when, and from where.' },
+};
+
+/* Per school: expected today (absences already removed), then one number per
+   phase. Each phase shows exactly ONE ratio, and the pill is that ratio's
+   remainder — never a second total. */
+const SCHOOLS = [
+  { name: 'Brown',                 expected: 54, arrived: 38, accounted: 54, departed: 21, wave5: 18, wave6: 22 },
+  { name: 'Hillel Community Day',  expected: 38, arrived: 31, accounted: 38, departed: 15, wave5: 12, wave6: 16 },
+  { name: 'Bonner',                expected: 26, arrived: 26, accounted: 26, departed: 11, wave5:  8, wave6: 11 },
+  { name: 'Ober',                  expected: 19, arrived: 14, accounted: 19, departed:  8, wave5:  6, wave6:  8 },
+  { name: 'Twin Lakes',            expected: 12, arrived: 12, accounted: 12, departed:  5, wave5:  3, wave6:  5 },
+  { name: 'Somerset Academy',      expected:  9, arrived:  4, accounted:  9, departed:  3, wave5:  1, wave6:  3 },
+];
+
+const ALLERGY_CHILDREN = [
+  { name: 'Noa Ackerman', short: 'ALL NUTS', full: 'Peanuts, all tree nuts, sesame. Anaphylaxis.',
+    where: 'EpiPen in the Ocean Room cabinet · Gr 1 · Brown' },
+  { name: 'Eli Vargas', short: 'DAIRY · EGG', full: 'Milk and all dairy, egg. Hives, no EpiPen.',
+    where: 'Carries Benadryl in his bag · Gr 3 · Hillel' },
+];
+
+const EXCEPTIONS = {
+  arrival: [
+    { kind: 'late', title: 'Not arrived — past due', rows: [
+      { name: 'Micah Stern',   meta: 'Brown · walker, expected 2:45p',     right: '27 min' },
+      { name: 'Ezra Solomon',  meta: 'Ober · bus was in at 2:50p',         right: '22 min' },
+      { name: 'Talia Roth',    meta: 'Somerset · bus was in at 2:55p',     right: '17 min' },
+    ]},
+    { kind: 'unknown', title: 'Unaccounted', rows: [
+      { name: 'Ari Blum', meta: 'Ober · no bus scan, no absence reported', right: 'Call home', action: true },
+    ]},
+  ],
+  program: [],
+  dismissal: [
+    { kind: 'waiting', title: 'Parent at the door', rows: [
+      { name: 'Rivka Adler', meta: 'Brown · Gr 4 · mother, in the loop',   right: 'Got it', action: true, sub: '3 min' },
+      { name: 'Sam Okoye',   meta: 'Bonner · Gr 2 · father, in the loop',  right: 'Got it', action: true, sub: '6 min' },
+    ]},
+    { kind: 'late', title: 'Past dismissal — still here', rows: [
+      { name: 'Maya Feldman',   meta: 'Brown · due 5:00p · in Studio B',   right: '18 min' },
+      { name: 'Ruby Nakamura',  meta: 'Hillel · due 5:00p · Ocean Room',   right: '18 min' },
+    ]},
+  ],
+};
+
+/* Destination kinds:
+     parents — leaves the building from this room
+     next    — continues to another activity (chained)
+     care    — care room until the pickup wave                              */
+const CLASSES = [
+  {
+    id: 'swim', name: 'Swim L3', start: '3:00p', end: '4:00p', location: 'Pool',
+    withStaff: 'Dana Kohn', count: 5, inFrom: '5 arriving fresh from the bus',
+    groups: [
+      { id: 'g1', kind: 'parents', name: 'Parent pickup at the Pool', when: '4:00p · leaves the building', kids: [
+        { n: 'Roth, Talia',       g: 'Gr 1', s: 'Somerset', t: '4:00p' },
+        { n: 'Stern, Micah',      g: 'Gr 2', s: 'Brown',    t: '4:00p' },
+      ]},
+      { id: 'g2', kind: 'next', name: '→ Yoga · Studio B', when: 'Continues with you at 4:00p', kids: [
+        { n: 'Feldman, Maya',     g: 'Gr 3', s: 'Brown',    t: '5:00p', chainOut: 'Yoga' },
+      ]},
+      { id: 'g3', kind: 'care', name: 'Ocean Room', when: 'Care until 5:00p pickup', kids: [
+        { n: 'Nakamura, Ruby',    g: 'Gr K', s: 'Hillel',   t: '5:00p' },
+      ]},
+      { id: 'g4', kind: 'care', name: 'Blue Room', when: 'Care until 6:00p pickup', kids: [
+        { n: 'Kessler, Jonah',    g: 'Gr 2', s: 'Hillel',   t: '6:00p' },
+      ]},
+    ],
+  },
+  {
+    id: 'yoga', name: 'Yoga', start: '4:00p', end: '5:00p', location: 'Studio B',
+    withStaff: 'Rina Adelson', count: 16, inFrom: '15 from care rooms · 1 from Swim L3 (yours)',
+    groups: [
+      { id: 'g1', kind: 'parents', name: 'Parent pickup at Studio B', when: '5:00p · leaves the building', kids: [
+        { n: 'Adler, Rivka',      g: 'Gr 4', s: 'Brown',      t: '5:00p' },
+        { n: 'Feldman, Maya',     g: 'Gr 3', s: 'Brown',      t: '5:00p', chainIn: 'Swim L3' },
+        { n: 'Hartman, Leo',      g: 'Gr 5', s: 'Bonner',     t: '5:00p' },
+        { n: 'Pinsky, Zoe',       g: 'Gr 3', s: 'Twin Lakes', t: '5:00p' },
+      ]},
+      { id: 'g2', kind: 'care', name: 'Ocean Room', when: 'Care until 6:00p pickup · K–1', kids: [
+        { n: 'Ackerman, Noa',     g: 'Gr 1', s: 'Brown',      t: '6:00p', allergy: 0 },
+        { n: 'Berkowitz, Ilan',   g: 'Gr K', s: 'Hillel',     t: '6:00p' },
+        { n: 'Cohen, Sadie',      g: 'Gr 1', s: 'Bonner',     t: '6:00p' },
+        { n: 'Levine, Ari',       g: 'Gr K', s: 'Brown',      t: '6:00p' },
+        { n: 'Weiss, Tovah',      g: 'Gr 1', s: 'Ober',       t: '6:00p' },
+      ]},
+      { id: 'g3', kind: 'care', name: 'Blue Room', when: 'Care until 6:00p pickup · 2–3', kids: [
+        { n: 'Halberstam, Dov',   g: 'Gr 3', s: 'Brown',      t: '6:00p' },
+        { n: 'Mizrahi, Eliana',   g: 'Gr 2', s: 'Bonner',     t: '6:00p' },
+        { n: 'Perlman, Asher',    g: 'Gr 2', s: 'Somerset',   t: '6:00p' },
+        { n: 'Tavor, Shira',      g: 'Gr 3', s: 'Ober',       t: '6:00p' },
+      ]},
+      { id: 'g4', kind: 'care', name: 'Red Room', when: 'Care until 6:00p pickup · 4–6', kids: [
+        { n: 'Feinberg, Gabe',    g: 'Gr 5', s: 'Hillel',     t: '6:00p' },
+        { n: 'Ostrow, Yael',      g: 'Gr 4', s: 'Twin Lakes', t: '6:00p' },
+        { n: 'Sela, Danny',       g: 'Gr 6', s: 'Brown',      t: '6:00p' },
+      ]},
+    ],
+  },
+  {
+    id: 'hockey', name: 'Floor Hockey', start: '5:00p', end: '5:45p', location: 'Gym',
+    withStaff: 'Dana Kohn', count: 9, inFrom: '9 from care rooms',
+    groups: [
+      { id: 'g1', kind: 'care', name: 'Ocean Room', when: 'Care until 6:00p pickup · K–1', kids: [
+        { n: 'Aronson, Miri',     g: 'Gr K', s: 'Brown',      t: '6:00p' },
+        { n: 'Dresner, Yonah',    g: 'Gr 1', s: 'Bonner',     t: '6:00p' },
+        { n: 'Katz, Lila',        g: 'Gr K', s: 'Twin Lakes', t: '6:00p' },
+        { n: 'Solomon, Ezra',     g: 'Gr 1', s: 'Ober',       t: '6:00p' },
+      ]},
+      { id: 'g2', kind: 'care', name: 'Blue Room', when: 'Care until 6:00p pickup · 2–3', kids: [
+        { n: 'Brodsky, Nate',     g: 'Gr 2', s: 'Brown',      t: '6:00p' },
+        { n: 'Segal, Hannah',     g: 'Gr 3', s: 'Somerset',   t: '6:00p' },
+        { n: 'Vargas, Eli',       g: 'Gr 3', s: 'Hillel',     t: '6:00p', allergy: 1 },
+      ]},
+      { id: 'g3', kind: 'care', name: 'Red Room', when: 'Care until 6:00p pickup · 4–6', kids: [
+        { n: 'Fried, Adam',       g: 'Gr 5', s: 'Brown',      t: '6:00p' },
+        { n: 'Wexler, Tamar',     g: 'Gr 4', s: 'Bonner',     t: '6:00p' },
+      ]},
+    ],
+  },
+];
+
+/* Which class is "now", and how much is already done, at each clock stop.
+   `ticked` seeds the presence controls so each state reads as a real moment
+   rather than an empty form. */
+const TIMELINE_STATE = {
+  /* The two Swim L3 children left unticked at 3:12p are Talia Roth and Micah
+     Stern — the same two Today lists as "not arrived, past expected time". The
+     two screens are looking at one afternoon and must never disagree. */
+  arrival:   { now: 'swim',   done: [],               ticked: { swim: ['g2:0', 'g3:0', 'g4:0'] } },
+  program:   { now: 'yoga',   done: ['swim'],         ticked: { yoga: ['g1:0','g1:1','g1:2','g2:0','g2:1','g2:2','g2:3','g2:4','g3:0','g3:1','g3:2','g3:3','g4:0','g4:1'] } },
+  dismissal: { now: 'hockey', done: ['swim','yoga'],  ticked: { hockey: ['g1:0','g1:1','g1:2','g1:3'] } },
+};
+
+/* ═══════════════════════════════════════════════════════════════════════
+   STATE
+   ═══════════════════════════════════════════════════════════════════════ */
+const S = {
+  screen: 'today',
+  phase: 'arrival',
+  phaseOverride: null,     // Today: counselor tapped a phase other than "now"
+  orient: 'land',
+  rail: 'open',
+  selectedClass: null,     // My day: null → follow the clock
+  ticked: new Set(),       // "classId:groupId:index"
+  groupsDone: new Set(),   // "classId:groupId"
+  openAllergy: null,
+};
+
+function seedForPhase() {
+  S.ticked = new Set();
+  S.groupsDone = new Set();
+  const st = TIMELINE_STATE[S.phase];
+  Object.entries(st.ticked || {}).forEach(([cls, keys]) => keys.forEach((k) => S.ticked.add(cls + ':' + k)));
+  // Every finished class is fully routed, group by group.
+  st.done.forEach((cid) => {
+    const c = CLASSES.find((x) => x.id === cid);
+    c.groups.forEach((g) => {
+      S.groupsDone.add(cid + ':' + g.id);
+      g.kids.forEach((_, i) => S.ticked.add(cid + ':' + g.id + ':' + i));
+    });
+  });
+  // At 5:18p the Ocean Room group is already routed, so "confirmed groups
+  // recede" has something to show inside a class that is still open.
+  if (S.phase === 'dismissal') S.groupsDone.add('hockey:g1');
+  S.selectedClass = null;
+  S.phaseOverride = null;
+  S.openAllergy = null;
+}
+
+const esc = (s) => String(s).replace(/&(?!\w+;)/g, '&amp;').replace(/</g, '&lt;');
+const sum = (f) => SCHOOLS.reduce((a, s) => a + f(s), 0);
+
+/* ═══════════════════════════════════════════════════════════════════════
+   RAIL — 4 destinations, then identity. See the notes for what merged.
+   ═══════════════════════════════════════════════════════════════════════ */
+function railHTML() {
+  const exCount = (EXCEPTIONS[S.phase] || []).reduce((a, s) => a + s.rows.length, 0);
+  const items = [
+    { id: 'today', label: 'Today',    icon: I.home,   badge: exCount || 0 },
+    { id: 'myday', label: 'My day',   icon: I.day,    badge: 0 },
+    { id: 'kids',  label: 'Children', icon: I.kids,   badge: 0 },
+    { id: 'pics',  label: 'Photos',   icon: I.photos, badge: 0 },
+  ];
+  const mini = S.rail === 'mini' || S.orient === 'port';
+  return `
+    <nav class="k-rail" aria-label="Main">
+      <div class="k-rail-top">
+        <span class="k-mark" aria-hidden="true">JCC</span>
+        <span class="k-hide-collapsed">
+          <span class="k-mark-name">Afterschool</span>
+          <span class="k-mark-org" style="display:block">${esc(ME.org)}</span>
+        </span>
+      </div>
+      ${items.map((it) => `
+        <button class="k-navitem" data-nav="${it.id}"
+          ${(S.screen === 'today' && it.id === 'today') || (S.screen === 'myday' && it.id === 'myday') ? 'aria-current="page"' : ''}
+          title="${esc(it.label)}">
+          ${it.icon}<span class="k-hide-collapsed">${esc(it.label)}</span>
+          ${it.badge ? `<span class="k-navbadge k-num">${it.badge}</span>` : ''}
+        </button>`).join('')}
+
+      <div class="k-rail-foot">
+        <div class="k-me">
+          <span class="k-avatar" aria-hidden="true">${ME.initials}</span>
+          <span class="k-hide-collapsed">
+            <span class="k-me-name" style="display:block">${esc(ME.name)}</span>
+            <span class="k-me-role">${esc(ME.role)}</span>
+          </span>
+        </div>
+        <button class="k-signout" data-act="signout">${I.out}<span class="k-hide-collapsed">Sign out</span></button>
+        <button class="k-railtoggle" data-act="rail">
+          ${mini ? I.chevronsR : I.chevrons}
+          <span class="k-hide-collapsed">Collapse</span>
+        </button>
+      </div>
+    </nav>`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   SCREEN 1 — TODAY
+   ═══════════════════════════════════════════════════════════════════════ */
+/* Four elements, identical in every phase: name, one ratio, one bar + one
+   pill, one labelled action. Button labels stay short enough not to need the
+   school's name — the name is 19px directly above them, so "Dismiss Hillel
+   Community Day · 6:00p wave" was repeating the card's own title and
+   overflowing the card to do it. */
+function schoolCard(s, view) {
+  let pill, metric, pct, action, barClass = '';
+  if (view === 'arrival') {
+    const left = s.expected - s.arrived;
+    pill = left === 0
+      ? `<span class="k-pill k-pill--leaf">${I.checkCircle} All in</span>`
+      : `<span class="k-pill k-pill--sun k-num">${left} not in</span>`;
+    metric = `<b class="k-num">${s.arrived}</b> of <span class="k-num">${s.expected}</span> arrived`;
+    pct = (s.arrived / s.expected) * 100;
+    if (left === 0) barClass = 'k-bar--leaf';
+    action = left === 0
+      ? `<button class="k-btn k-btn--outline k-btn--full" data-act="school" data-school="${esc(s.name)}">Review roster</button>`
+      : `<button class="k-btn k-btn--soft k-btn--full" data-act="school" data-school="${esc(s.name)}">Check in ${left} arrivals</button>`;
+  } else if (view === 'program') {
+    // The remainder of this ratio is zero, so the pill carries the next thing
+    // that will happen instead. Time-stamped and a strict subset of the 54 —
+    // it cannot be read as a competing total.
+    pill = `<span class="k-pill k-pill--sky k-num">${s.wave5} leave at 5:00p</span>`;
+    metric = `<b class="k-num">${s.accounted}</b> of <span class="k-num">${s.expected}</span> accounted for`;
+    pct = 100; barClass = 'k-bar--leaf';
+    action = `<button class="k-btn k-btn--outline k-btn--full" data-act="school" data-school="${esc(s.name)}">Open roster</button>`;
+  } else {
+    const here = s.expected - s.departed;
+    pill = `<span class="k-pill k-pill--ink k-num">${here} still here</span>`;
+    metric = `<b class="k-num">${s.departed}</b> of <span class="k-num">${s.expected}</span> dismissed`;
+    pct = (s.departed / s.expected) * 100;
+    action = `<button class="k-btn k-btn--soft k-btn--full" data-act="school" data-school="${esc(s.name)}">Dismiss ${s.wave6} at 6:00p</button>`;
+  }
+  return `
+    <article class="k-card k-school">
+      <h3 class="k-school-name">${esc(s.name)}</h3>
+      <p class="k-school-metric">${metric}</p>
+      <div class="k-school-head">
+        <div class="k-bar ${barClass}"><i style="width:${pct.toFixed(1)}%"></i></div>
+        ${pill}
+      </div>
+      ${action}
+    </article>`;
+}
+
+function excRow(r, kind) {
+  const right = r.action
+    ? `<button class="k-btn ${kind === 'waiting' ? 'k-btn--primary' : 'k-btn--outline'} k-btn--sm" data-act="exc" data-name="${esc(r.name)}">${esc(r.right)}</button>`
+    : `<span class="k-exc-late k-num">${esc(r.right)}</span>`;
+  const waited = r.sub ? `<span class="k-exc-late k-num" style="margin-right:2px">${esc(r.sub)}</span>` : '';
+  return `
+    <div class="k-exc">
+      <div class="k-exc-main">
+        <p class="k-exc-name">${esc(r.name)}</p>
+        <p class="k-exc-meta">${waited}${esc(r.meta)}</p>
+      </div>
+      ${right}
+    </div>`;
+}
+
+function panelHTML() {
+  const groups = EXCEPTIONS[S.phase] || [];
+  const total = groups.reduce((a, g) => a + g.rows.length, 0);
+
+  const titles = {
+    late: I.clock, unknown: I.alert, waiting: I.car,
+  };
+
+  const body = total === 0
+    ? `<div class="k-card k-sect k-sect--ok">
+         <div class="k-ok-line">
+           <span>${I.checkCircle}</span>
+           <div>
+             <p class="k-ok-title">Nothing needs a person</p>
+             <p class="k-ok-sub k-num">All ${sum((s) => s.expected)} children accounted for across 6 schools.</p>
+           </div>
+         </div>
+       </div>`
+    : groups.map((g) => `
+        <div class="k-card k-sect k-sect--alert">
+          <p class="k-sect-title">${titles[g.kind] || ''}<span>${esc(g.title)}</span><span class="k-sect-n k-num">${g.rows.length}</span></p>
+          ${g.rows.map((r) => excRow(r, g.kind)).join('')}
+        </div>`).join('');
+
+  const meds = `
+    <div class="k-card k-sect k-sect--med">
+      <p class="k-sect-title">${I.alert}<span>Allergy alerts today</span><span class="k-sect-n k-num">${ALLERGY_CHILDREN.length}</span></p>
+      ${ALLERGY_CHILDREN.map((c) => `
+        <div class="k-med">
+          <div>
+            <p class="k-med-name">${esc(c.name)}</p>
+            <p class="k-med-what">${esc(c.short)}</p>
+            <p class="k-med-where">${esc(c.where)}</p>
+          </div>
+        </div>`).join('')}
+    </div>`;
+
+  return `
+    <aside class="k-panel" aria-label="Exceptions">
+      <div class="k-panel-head">
+        <h2>NEEDS A PERSON</h2>
+        ${total ? `<span class="k-pill k-pill--sun k-num">${total}</span>` : `<span class="k-pill k-pill--leaf">Clear</span>`}
+      </div>
+      ${body}
+      ${meds}
+    </aside>`;
+}
+
+function todayHTML() {
+  const view = S.phaseOverride || S.phase;
+  const p = PHASES[S.phase];
+
+  let head;
+  if (view === 'arrival') {
+    const a = sum((s) => s.arrived), e = sum((s) => s.expected);
+    head = `<span class="k-big k-num">${a} of ${e} arrived</span>
+            <span class="k-note k-num">· ${e - a} not yet in · 5 reported absent, already out of these counts</span>`;
+  } else if (view === 'program') {
+    head = `<span class="k-big k-num">${sum((s) => s.accounted)} of ${sum((s) => s.expected)} accounted for</span>
+            <span class="k-note">· nobody unlocated</span>`;
+  } else {
+    const d = sum((s) => s.departed), e = sum((s) => s.expected);
+    head = `<span class="k-big k-num">${d} of ${e} dismissed</span>
+            <span class="k-note k-num">· ${e - d} still here · next wave 6:00p</span>`;
+  }
+
+  return `
+    <div class="k-main">
+      <header class="k-topbar">
+        <div>
+          <h1 class="k-title">Today</h1>
+          <p class="k-subtitle">${esc(DATE_LONG)} · 6 schools</p>
+        </div>
+        <div class="k-now">
+          <span class="k-now-clock k-num">${p.clock}</span>
+          <span class="k-now-div"></span>
+          <span>
+            <span class="k-now-label" style="display:block">Right now</span>
+            <span class="k-now-block" style="display:block">${p.block}</span>
+            <span class="k-now-sub">${p.what}</span>
+          </span>
+        </div>
+      </header>
+
+      <div class="k-today">
+        <div class="k-today-main">
+          <div class="k-phasebar">
+            <div class="k-phases" role="group" aria-label="Which part of the afternoon">
+              ${Object.entries(PHASES).map(([k, v]) => `
+                <button class="k-phase" data-act="view" data-view="${k}" aria-pressed="${view === k}">
+                  ${k === S.phase ? '<span class="k-dot"></span>' : ''}${v.label}
+                </button>`).join('')}
+            </div>
+            <p class="k-phase-hint">${PHASES[view].job}${view !== S.phase ? ' <b>Not the current block.</b>' : ''}</p>
+          </div>
+
+          <div class="k-boardhead">${head}</div>
+          <div class="k-grid">${SCHOOLS.map((s) => schoolCard(s, view)).join('')}</div>
+        </div>
+        ${panelHTML()}
+      </div>
+    </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   SCREEN 2 — MY DAY
+   ═══════════════════════════════════════════════════════════════════════ */
+function classMode(cls) {
+  const st = TIMELINE_STATE[S.phase];
+  if (st.done.includes(cls.id)) return 'done';
+  if (st.now === cls.id) {
+    // Routing takes over half an hour before the class lets out — that is when
+    // the counselor stops asking "who is here" and starts asking "where next".
+    const endMin = toMin(cls.end), nowMin = toMin(PHASES[S.phase].clock);
+    return nowMin >= endMin - 30 ? 'routing' : 'attendance';
+  }
+  return 'upcoming';
+}
+function toMin(t) {
+  const m = t.match(/^(\d+):(\d+)([ap])$/);
+  let h = +m[1] % 12; if (m[3] === 'p') h += 12;
+  return h * 60 + +m[2];
+}
+
+function tickedCount(cls) {
+  let n = 0;
+  cls.groups.forEach((g) => g.kids.forEach((_, i) => { if (S.ticked.has(`${cls.id}:${g.id}:${i}`)) n++; }));
+  return n;
+}
+
+function timelineHTML(currentId) {
+  return `
+    <nav class="k-tl" aria-label="Your day">
+      <p class="k-tl-head">Your day · 3 classes</p>
+      ${CLASSES.map((c) => {
+        const mode = classMode(c);
+        const done = mode === 'done';
+        const isNow = TIMELINE_STATE[S.phase].now === c.id;
+        const n = tickedCount(c);
+        // Which classes hold an allergy child, visible before you open them —
+        // it is the one thing worth knowing about a class you have not
+        // selected yet.
+        const meds = c.groups.reduce((a, g) => a + g.kids.filter((k) => k.allergy != null).length, 0);
+        let state;
+        if (done) {
+          state = `<span class="k-pill k-pill--leaf">${I.checkCircle} All ${c.count} routed</span>`;
+        } else if (isNow) {
+          state = `<span class="k-pill k-pill--sky k-num">NOW · ${n} of ${c.count} ${mode === 'routing' ? 'routed' : 'here'}</span>`;
+        } else {
+          state = `<span class="k-pill k-pill--ink">Starts ${c.start}</span>`;
+        }
+        return `
+          <button class="k-tlitem ${done ? 'is-done' : ''} ${mode === 'upcoming' ? 'is-upcoming' : ''}"
+                  data-act="pick" data-class="${c.id}"
+                  aria-current="${currentId === c.id}">
+            <span class="k-tl-time k-num">${c.start} – ${c.end}</span>
+            <span class="k-tl-name">${esc(c.name)}</span>
+            <span class="k-tl-meta k-num">${esc(c.location)} · ${c.count} children</span>
+            <span class="k-tl-state">${state}${meds ? `<span class="k-med-chip">${I.alert}<span class="k-num">${meds}</span></span>` : ''}</span>
+          </button>`;
+      }).join('')}
+    </nav>`;
+}
+
+function kidRow(cls, g, kid, i, mode) {
+  const key = `${cls.id}:${g.id}:${i}`;
+  const on = S.ticked.has(key);
+  const a = kid.allergy != null ? ALLERGY_CHILDREN[kid.allergy] : null;
+  const open = a && S.openAllergy === key;
+  return `
+    <div class="k-kid">
+      <button class="k-check" data-act="tick" data-key="${key}" aria-pressed="${on}"
+              aria-label="${mode === 'routing' ? 'Routed' : 'Here'}: ${esc(kid.n)}">${I.check}</button>
+      <div class="k-kid-main">
+        <p class="k-kid-name">${esc(kid.n)}</p>
+        <p class="k-kid-meta">${esc(kid.g)} · ${esc(kid.s)}</p>
+      </div>
+      <span class="k-kid-time k-num">${esc(kid.t)}</span>
+    </div>
+    ${kid.chainIn ? `<p class="k-chain-bar">${I.arrowIn}Arrives from ${esc(kid.chainIn)} — your class</p>` : ''}
+    ${a ? `<button class="k-allergy" data-act="allergy" data-key="${key}" aria-expanded="${!!open}">
+             ${I.alert}<span class="k-allergy-what">${esc(a.short)}</span>
+             <span class="k-allergy-more">${open ? 'Hide' : 'Tap for details'}</span>
+           </button>` : ''}
+    ${open ? `<div class="k-allergy-detail"><b>${esc(a.name)}</b>${esc(a.full)}<br>${esc(a.where)}</div>` : ''}`;
+}
+
+function groupHTML(cls, g, mode) {
+  const dkey = `${cls.id}:${g.id}`;
+  const n = g.kids.filter((_, i) => S.ticked.has(`${cls.id}:${g.id}:${i}`)).length;
+  // A group recedes the moment its last child is ticked, whether that came
+  // from the group button or from tapping the children one at a time. Without
+  // this, a finished group keeps its full ~350px and the eye has to re-read it
+  // to discover there is nothing left to do in it.
+  const done = S.groupsDone.has(dkey) || n === g.kids.length;
+  const meds = g.kids.filter((k) => k.allergy != null).length;
+  if (done) {
+    // The allergy marker survives the collapse. Receding is about work that is
+    // finished; an allergy is not work, and "everyone is here" is exactly the
+    // moment a counselor stops looking at this group — so the one fact that
+    // must not vanish is the one the green state would otherwise swallow.
+    return `
+      <section class="k-group is-done">
+        <div class="k-donebar">
+          ${I.checkCircle}
+          <div>
+            <p class="k-done-name">${esc(g.name)}</p>
+            <p class="k-done-sub k-num">${g.kids.length} of ${g.kids.length} ${mode === 'attendance' ? 'here' : 'routed'}</p>
+          </div>
+          ${meds ? `<span class="k-med-chip">${I.alert}<span class="k-num">${meds}</span></span>` : ''}
+          <button class="k-undo" data-act="undo" data-group="${dkey}">Undo</button>
+        </div>
+      </section>`;
+  }
+  return `
+    <section class="k-group k-group--${g.kind}">
+      <div class="k-group-head">
+        <div>
+          <p class="k-group-name">${esc(g.name)}</p>
+          <p class="k-group-when">${esc(g.when)}</p>
+        </div>
+        <span class="k-group-count k-num">${n}/${g.kids.length}</span>
+      </div>
+      ${g.kids.map((k, i) => kidRow(cls, g, k, i, mode)).join('')}
+      <div class="k-group-action">
+        <button class="k-btn k-btn--soft k-btn--full" data-act="all" data-group="${dkey}">
+          ${I.check}${mode === 'attendance' ? `All ${g.kids.length} here` : `Route all ${g.kids.length}`}
+        </button>
+      </div>
+    </section>`;
+}
+
+function mydayHTML() {
+  const st = TIMELINE_STATE[S.phase];
+  const cls = CLASSES.find((c) => c.id === (S.selectedClass || st.now));
+  const mode = classMode(cls);
+  const p = PHASES[S.phase];
+  const n = tickedCount(cls);
+  const nextWave = S.phase === 'arrival' ? '4:00p' : S.phase === 'program' ? '5:00p' : '6:00p';
+  const waveN = S.phase === 'arrival' ? 2 : S.phase === 'program' ? 4 : 9;
+
+  const modeLabel = mode === 'done'
+    ? `<span class="k-pill k-pill--leaf">${I.checkCircle} Finished · all ${cls.count} routed</span>`
+    : mode === 'upcoming'
+      ? `<span class="k-pill k-pill--ink">Starts ${cls.start}</span>`
+      : `<span class="k-pill k-pill--sky">${I.clock} Happening now</span>`;
+
+  const progress = mode === 'upcoming' ? '' : `
+    <div class="k-classprog">
+      <span class="k-classprog-label k-num">${n} of ${cls.count}
+        <span>${mode === 'attendance' ? 'here' : 'routed'}</span></span>
+      <div class="k-bar ${n === cls.count ? 'k-bar--leaf' : ''}"><i style="width:${(n / cls.count) * 100}%"></i></div>
+      <span class="k-classprog-in">${esc(cls.inFrom)}</span>
+    </div>`;
+
+  return `
+    <div class="k-main">
+      <header class="k-topbar k-topbar--myday">
+        <div>
+          <h1 class="k-title">My day</h1>
+          <p class="k-subtitle">${esc(DATE_LONG)} · ${esc(ME.name)}</p>
+        </div>
+        <div class="k-now">
+          <span class="k-now-clock k-num">${p.clock}</span>
+          <span class="k-now-div"></span>
+          <span>
+            <span class="k-now-label" style="display:block">Right now</span>
+            <span class="k-now-block" style="display:block">${p.block}</span>
+            <span class="k-now-sub">${p.what}</span>
+          </span>
+        </div>
+
+        <div class="k-summary">
+        <span class="k-fact"><b class="k-num">29</b> children</span>
+        <span class="k-fact-sep"></span>
+        <span class="k-fact"><b class="k-num">3</b> classes</span>
+        <span class="k-fact-sep"></span>
+        <span class="k-fact k-fact--med"><b class="k-num">2</b> with allergies</span>
+        <span class="k-fact-sep"></span>
+        <span class="k-fact">next dismissal wave <b class="k-num">${nextWave}</b> · <b class="k-num">${waveN}</b> of yours</span>
+          <span class="k-chainnote">${I.arrowIn}Maya Feldman appears twice — Swim L3 into Yoga. Not a duplicate.</span>
+        </div>
+      </header>
+
+      <div class="k-myday">
+        ${timelineHTML(cls.id)}
+        <section class="k-classpane">
+          <div class="k-card k-classhead">
+            <div class="k-classhead-top">
+              <h2 class="k-classname">${esc(cls.name)}</h2>
+              <p class="k-classwhen k-num">${cls.start}–${cls.end} · ${esc(cls.location)} · with ${esc(cls.withStaff)}</p>
+              <span style="margin-left:auto">${modeLabel}</span>
+            </div>
+            ${progress}
+          </div>
+          <div class="k-routing-scroll">
+            <div class="k-routing">
+              ${cls.groups.map((g) => groupHTML(cls, g, mode)).join('')}
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   RENDER + EVENTS
+   ═══════════════════════════════════════════════════════════════════════ */
+const app = document.getElementById('app');
+const stage = document.getElementById('stage');
+const toastEl = document.getElementById('toast');
+let toastT;
+
+function render() {
+  const port = S.orient === 'port';
+  stage.style.width = port ? '820px' : '1180px';
+  stage.style.height = port ? '1180px' : '820px';
+  stage.classList.toggle('is-rail-collapsed', S.rail === 'mini' || port);
+  document.getElementById('capsize').textContent = port ? '820 × 1180' : '1180 × 820';
+  app.innerHTML = railHTML() + (S.screen === 'today' ? todayHTML() : mydayHTML());
+  fit();
+}
+
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('is-on');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => toastEl.classList.remove('is-on'), 1900);
+}
+
+app.addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const act = b.dataset.act;
+
+  if (b.dataset.nav) {
+    const id = b.dataset.nav;
+    if (id === 'today' || id === 'myday') { S.screen = id; render(); }
+    else toast(id === 'kids' ? 'Children — search any child, allergies, contacts' : 'Photos — this week’s uploads');
+    return;
+  }
+  if (act === 'rail') { S.rail = S.rail === 'mini' ? 'open' : 'mini'; syncSegs(); render(); return; }
+  if (act === 'signout') { toast('Sign out — asks “Sign out Angelie Fischer?” first'); return; }
+  if (act === 'view') { S.phaseOverride = b.dataset.view === S.phase ? null : b.dataset.view; render(); return; }
+  if (act === 'school') { toast(`${b.dataset.school} — roster opens here`); return; }
+  if (act === 'exc') { toast(`${b.dataset.name} — handled`); return; }
+  if (act === 'pick') { S.selectedClass = b.dataset.class; S.openAllergy = null; render(); return; }
+  if (act === 'tick') {
+    const k = b.dataset.key;
+    S.ticked.has(k) ? S.ticked.delete(k) : S.ticked.add(k);
+    render(); return;
+  }
+  if (act === 'all') {
+    const [cid, gid] = b.dataset.group.split(':');
+    const cls = CLASSES.find((c) => c.id === cid);
+    cls.groups.find((g) => g.id === gid).kids.forEach((_, i) => S.ticked.add(`${cid}:${gid}:${i}`));
+    S.groupsDone.add(b.dataset.group);
+    render(); return;
+  }
+  if (act === 'undo') {
+    const [cid, gid] = b.dataset.group.split(':');
+    S.groupsDone.delete(b.dataset.group);
+    const cls = CLASSES.find((c) => c.id === cid);
+    cls.groups.find((g) => g.id === gid).kids.forEach((_, i) => S.ticked.delete(`${cid}:${gid}:${i}`));
+    render(); return;
+  }
+  if (act === 'allergy') {
+    S.openAllergy = S.openAllergy === b.dataset.key ? null : b.dataset.key;
+    render(); return;
+  }
+});
+
+function bindSeg(id, key, after) {
+  document.getElementById(id).addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    S[key] = b.dataset[key];
+    if (after) after();
+    syncSegs(); render();
+  });
+}
+bindSeg('seg-screen', 'screen');
+bindSeg('seg-phase', 'phase', seedForPhase);
+bindSeg('seg-orient', 'orient');
+bindSeg('seg-rail', 'rail');
+
+function syncSegs() {
+  [['seg-screen', 'screen', 'screen'], ['seg-phase', 'phase', 'phase'],
+   ['seg-orient', 'orient', 'orient'], ['seg-rail', 'rail', 'rail']].forEach(([id, key, d]) => {
+    document.querySelectorAll('#' + id + ' button').forEach((b) => {
+      b.setAttribute('aria-pressed', String(b.dataset[d] === S[key]));
+    });
+  });
+}
+
+/* Scale the 1180px stage down to whatever the reviewer's window gives us,
+   without changing its layout width — container queries above still see 1180
+   (or 820), so the reflow being demonstrated is the real one. */
+const fitEl = document.getElementById('stagefit');
+function fit() {
+  const avail = fitEl.parentElement.clientWidth;
+  const w = S.orient === 'port' ? 820 : 1180;
+  const h = S.orient === 'port' ? 1180 : 820;
+  const k = Math.min(1, avail / w);
+  fitEl.style.transform = `scale(${k})`;
+  fitEl.parentElement.style.height = h * k + 'px';
+}
+window.addEventListener('resize', fit);
+
+seedForPhase();
+render();
+
+/* ═══════════════════════════════════════════════════════════════════════
+   NOTES
+   ═══════════════════════════════════════════════════════════════════════ */
+document.getElementById('notes').innerHTML = `
+<section class="note">
+  <h2>Navigation: seven tabs became four destinations and an identity block</h2>
+  <p class="lede">
+    A bottom bar spends the scarcest dimension on a landscape tablet — vertical space — and puts the
+    controls at the far edge from two hands holding the sides. The rail moves navigation to the long
+    edge, which is free, and leaves the full height for content. Four of the seven old labels
+    (<strong>Today, My day, Roster, Schedule</strong>) all read to a counselor as “the list of kids
+    this afternoon”, so the merge is as much about naming as about layout.
+  </p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Old tab</th><th>Now</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Today</td><td>Today</td>
+          <td>Kept as the building-wide board: every school, who is accounted for, what needs a person.</td></tr>
+        <tr><td>Pickup</td><td>Inside Today</td>
+          <td>“A parent is at the door” is the same kind of fact as “Ezra never arrived” — something
+              happening in the building that needs an adult now. It was a tab you had to remember to
+              check; it is now the top section of the exceptions panel during dismissal, in peripheral
+              vision the whole time. It only ever holds a queue, never a list.</td></tr>
+        <tr><td>My day</td><td>My day</td>
+          <td>Kept, and now carries the entire class → routing job rather than being a read-only printout.</td></tr>
+        <tr><td>Schedule</td><td>Split: My day + Account</td>
+          <td>“Schedule” meant two unrelated things. Looking at another day is a <em>control</em>
+              (the date on My day), not a place. Requesting a day off is a self-service form and belongs
+              with the rest of “things about me”, in Account.</td></tr>
+        <tr><td>Roster</td><td>Children</td>
+          <td>Same screen, renamed. “Roster” collided with the class roster inside My day. Its actual job
+              is lookup — search any child, allergies, contacts, photo — so it is named for the noun.</td></tr>
+        <tr><td>Photos</td><td>Photos</td><td>Unchanged.</td></tr>
+        <tr><td>Account</td><td>Rail footer</td>
+          <td>On a shared cart tablet the account is not a destination, it is the answer to “who is
+              signed in”. Name and role sit permanently at the bottom of the rail with a bordered
+              Sign out below them — reachable in one tap, and behind a confirm so a mis-tap in a gym
+              does not log out the person mid-dismissal.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    The rail collapses to 84px of icons for a counselor who has learned the four positions, and collapses
+    automatically in portrait where width is the constraint. Labels are always present in the expanded
+    state — the icons are recognition aids, not the only signal.
+  </p>
+</section>
+
+<section class="note">
+  <h2>Today — hierarchy decisions</h2>
+  <ul class="decisions">
+    <li><b>One ratio per card</b><span>The old card showed “0 of 4 in the building”, a half-filled bar and
+      a “2 left” pill — three different denominators. Each card now states exactly one ratio, the bar is
+      literally that ratio, and the pill is that ratio’s <em>remainder</em>. 38 + 16 = 54, always.
+      Absences are removed from <code>expected</code> upstream and reported once in the board header, so
+      they can never become a third number on a card. The one exception is stated on purpose: in program
+      the remainder is zero, so the pill carries “18 leave at 5:00p” — time-stamped, and a strict subset
+      of the 54 rather than a rival total.</span></li>
+    <li><b>Grid, not stack</b><span>Six schools in a 2-up grid (3-up on wider tablets — the grid is
+      <code>auto-fill minmax(250px, 1fr)</code>) so the whole program is visible without scrolling.
+      Card contents shrank to four elements: name, ratio, bar + pill, action.</span></li>
+    <li><b>The school name owns a line</b><span>19px/850, full card width. It is what a counselor is
+      hunting for. Sharing the line with the status pill cut “Hillel Community Day” to “Hillel Community
+      …”, so the pill moved down beside the bar — which is also where it belongs, next to the ratio it is
+      the remainder of.</span></li>
+    <li><b>The ratio outranks the bar</b><span>17px text, 8px bar. The bar is a glance check on a number
+      you can already read; it never carries information the text does not.</span></li>
+    <li><b>Labeled action, not a chevron</b><span>Every card ends in a full-width button that says what
+      happens and how much work it is: “Check in 16 arrivals”, “Open roster”, “Dismiss 22 at 6:00p”. A
+      chevron on a touch device says “something”, not “what”. The labels deliberately omit the school
+      name — it is 19px directly above, and “Dismiss Hillel Community Day · 6:00p wave” both repeated the
+      card’s own title and overflowed the card to do it.</span></li>
+    <li><b>Phase is a first-class control</b><span>Arrival / In program / Dismissal overlap in real time
+      (dismissal starts at 4:00 while classes are still running), so the screen cannot infer one job. The
+      block that matches the clock is selected and carries a blue dot; the other two are one tap away and
+      say so when you are looking at one of them.</span></li>
+    <li><b>“Now” is a fact, not a header</b><span>Current time at 26px next to the current activity block,
+      top-right — the corner a right-handed counselor’s thumb already covers, and the first thing needed
+      when picking the tablet up mid-afternoon.</span></li>
+    <li><b>The right column is exceptions only</b><span>336px reserved for “needs a person”, never a full
+      list. Late arrivals, unaccounted children, parents waiting. When it is empty it collapses to one
+      green line naming the total it verified — a quiet confirmation, not blank space.</span></li>
+    <li><b>Two red things, and only two</b><span>Red is the allergy section, which is always present at
+      the bottom of the panel because a nut allergy does not stop being true when nothing is wrong.
+      Late and unaccounted children are amber; they are operational, not medical.</span></li>
+    <li><b>Exceptions carry a count in the rail</b><span>The Today icon shows the exception count so a
+      counselor on My day knows the board needs them without switching.</span></li>
+  </ul>
+</section>
+
+<section class="note">
+  <h2>My day — hierarchy decisions</h2>
+  <ul class="decisions">
+    <li><b>Timeline replaces scrolling</b><span>Left pane, 268px: three classes as time / name / location ·
+      headcount / state. Selecting is how you change class; the pane itself never scrolls for a normal
+      day. The current class has a blue left border and a ring; finished classes go green with a check
+      and drop their name to grey; upcoming ones say when they start.</span></li>
+    <li><b>Never two classes in view</b><span>The right pane is one class in full. The old screen put a
+      16-child class and its neighbours in the same column, which is what made it 1,400px tall.</span></li>
+    <li><b>Allergies: nothing means nothing</b><span>A child with no allergy renders no element at all —
+      no “n/a”, no grey icon, no reserved column. The two children who actually have one get a 48px red
+      bar under their name with the short form (<code>ALL NUTS</code>), tappable for the full list and
+      the EpiPen location. Two red bars in a 16-child class are impossible to miss; sixteen were
+      impossible to read.</span></li>
+    <li><b>Group by destination</b><span>When a class lets out, the job is routing, so the destination is
+      the container, not a column: “Parent pickup at Studio B”, “→ Yoga · Studio B”, “Ocean Room”. Each
+      group carries its own headcount and one button that confirms the whole group.</span></li>
+    <li><b>Destination groups sit side by side</b><span>Two balanced columns (<code>columns: 2</code>,
+      <code>break-inside: avoid</code>) so the entire routing plan for a 16-child class is one view.
+      Group order is by urgency of consequence: children leaving the building first, then children
+      walking to another activity, then care rooms.</span></li>
+    <li><b>Name strongest, dismissal time second</b><span>Name 16px/800 near-black. Dismissal time 16px/850,
+      tabular, in its own right-hand column so the times form a readable vertical stripe — it was 12.5px
+      grey inline text, and it is the field that decides what happens next. Grade and school drop to
+      14px/650 mid-grey on a second line: real information, never competing.</span></li>
+    <li><b>Alphabetical inside the group only</b><span>Sorted <code>Last, First</code>, matching the
+      workbook the office already keeps, so a counselor can cross-check a printed sheet line by line.
+      Global alphabetical ordering was solving a problem nobody has.</span></li>
+    <li><b>One control, 48×48</b><span>Every child has a single square presence control. During class it
+      means <em>here</em>; from thirty minutes before the class ends it means <em>routed</em>, and the
+      class header, the group buttons and the control’s own label all change word together, so the two
+      meanings are never on screen at once.</span></li>
+    <li><b>Confirmed groups recede</b><span>A group collapses to one green line — name, “5 of 5 routed”,
+      Undo — the moment its last child is ticked, whether from the group button or one child at a time.
+      That is ~350px becoming 56px. It is also what makes the screen fit: Yoga’s 16 children across four
+      destinations are 1,520px of content, and two balanced columns are not enough on their own. As the
+      afternoon is worked the screen empties, which is the correct direction for a tool used in
+      15-second glances.</span></li>
+    <li><b>Except the allergy marker</b><span>A collapsed group keeps a red chip if it contains an
+      allergy child. Receding is for finished work; an allergy is not work, and “everyone is here” is
+      exactly the moment a counselor stops reading that group — so it is the one fact the green state is
+      not allowed to swallow. The class timeline carries the same chip, so which classes hold an allergy
+      child is answerable without opening them.</span></li>
+    <li><b>The chain marker is a row, not a chip</b><span>It started as a chip beside Maya Feldman’s
+      name. Names are ellipsised at the column edge, so the chip was the first thing to be clipped — on
+      the one child in 29 who needs it. It is now its own blue line under the name. One child in the day
+      has it, so it costs nothing.</span></li>
+    <li><b>Chained children are labelled from both ends</b><span>Maya Feldman is in Swim L3 and in Yoga.
+      In Swim L3 she sits under a destination group named “→ Yoga · Studio B / Continues with you at
+      4:00p”. In Yoga her row carries a blue “from Swim L3” chip. The class header states the split
+      (“15 from care rooms · 1 from Swim L3 (yours)”) and the summary header names her outright. Four
+      places, so no one ever files a bug about a duplicate.</span></li>
+    <li><b>Group subtitle answers “is this their last stop”</b><span>“4:00p · leaves the building”,
+      “Continues with you at 4:00p”, “Care until 6:00p pickup · K–1”. The destination alone does not say
+      whether the afternoon is over for that child.</span></li>
+    <li><b>Concrete summary header</b><span>Replaces “Your classes and care rooms, in order. Everyone
+      else’s are not here.” with the four numbers a counselor actually plans against: 29 children,
+      3 classes, 2 with allergies, next dismissal wave and how many of them are yours — plus the
+      duplicate-name resolution.</span></li>
+    <li><b>29 children, 30 seats</b><span>The header counts distinct children, not enrolments, and the
+      chain note explains the difference. Summing the three class headcounts gives 30; the screen never
+      shows 30 anywhere.</span></li>
+  </ul>
+</section>
+
+<section class="note">
+  <h2>Colour, type, touch</h2>
+  <h3>Colour is a vocabulary of four</h3>
+  <p>
+    <strong>Blue <code>#2f6fed</code></strong> — actions and “right now”, the only accent.
+    <strong>Green <code>#16a34a</code></strong> — confirmed and all-clear.
+    <strong>Amber <code>#f59e0b</code></strong> — operational attention: late, unaccounted, waiting.
+    <strong>Red <code>#e11d48</code></strong> — medical only, and it appears exactly three times in
+    this whole afternoon (two children, one standing panel section). Everything else is the ink ramp on
+    the <code>#f6f8fb</code> canvas. All values come from
+    <code>web/src/styles/theme.css</code>; nothing new was minted. Coral, which the phone UI uses for
+    the pickup queue, is deliberately dropped here — a second warm accent next to a medical red is
+    exactly the ambiguity the brief is trying to remove, so pickup actions use blue.
+  </p>
+  <h3>Type</h3>
+  <p>
+    Figtree Variable, the app’s face, inlined as a data URI because a published page cannot reach a font
+    CDN and a silent fallback would invalidate every column width below. Nothing that carries meaning is
+    under 14px; body and names are 15.5–17px; the two numerals a counselor reads at arm’s length — the
+    clock and each school’s ratio — are 26px and 17px. Every column of digits is
+    <code>tabular-nums</code>, so ratios and dismissal times line up vertically as a stripe.
+  </p>
+  <h3>Touch</h3>
+  <p>
+    Presence controls 52×52. Every button ≥48px tall, ≥44px for the secondary Undo. Card actions run the
+    full width of the card. Nothing is revealed by hover — the allergy detail, the phase switch and the
+    class switch are all taps, and the only hover styling anywhere is on the review controls outside the
+    device frame.
+  </p>
+</section>
+
+<section class="note">
+  <h2>Portrait (820 × 1180)</h2>
+  <h3>Today</h3>
+  <p>
+    The rail auto-collapses to 84px icons. The exceptions panel loses its column and moves <em>above</em>
+    the school grid as a full-width band — it stays first because its whole purpose is to be seen without
+    being looked for, and reading order is the only priority signal left once the side-by-side is gone.
+    The grid locks to two columns of ~340px, so all six schools still fit; the extra height absorbs the
+    panel. Cards, ratios and actions are unchanged. Nothing scrolls.
+  </p>
+  <h3>My day</h3>
+  <p>
+    The timeline rotates from a left column to a horizontal strip of three class cards across the top,
+    which keeps class-switching one tap away and keeps the “now” marker visible. The class pane takes the
+    full remaining height below it. Destination groups stay two-up at ~330px each. Measured: nothing
+    scrolls in any of the three states.
+  </p>
+  <p>
+    One honest cost: the rail auto-collapses to icons in portrait, so the counselor’s full name gives way
+    to the avatar. Landscape is the primary orientation and shows name and role permanently; My day also
+    carries the name in its header line. If portrait became common, the name would move into the top bar
+    rather than the rail.
+  </p>
+  <h3>Smaller landscape (1024 × 768)</h3>
+  <p>
+    A third breakpoint at 1100px: the exceptions panel gives up 36px and the school grid drops its
+    column minimum, because at 1024 the original numbers resolved the grid to a <em>single</em> column —
+    six schools stacked, five below the fold, the exact failure being fixed. With that in place all six
+    schools stay two-up. The 768px height is the real constraint: Today gains ~10–40px of scroll (a
+    quarter of one card) and Yoga’s routing area gains ~64px. Both scroll inside their own column, never
+    clipped by the frame.
+  </p>
+  <h3>Measured, not asserted</h3>
+  <p>
+    Every claim above was checked by rendering the page in Chromium at each size and reading back
+    <code>scrollHeight − clientHeight</code> for each scroll container plus any element whose box escapes
+    the frame. At 1180 × 820 all twelve combinations of screen × phase × orientation report zero
+    overflow and zero scroll.
+  </p>
+</section>
+
+<section class="note">
+  <h2>The sample afternoon, so the numbers can be checked</h2>
+  <p>
+    6 schools, 158 children scheduled (5 more reported absent and removed from every count).
+    Dismissal waves 3:00p · 14, 4:00p · 31, 5:00p · 48, 6:00p · 65 — 158.
+  </p>
+  <p>
+    Angelie Fischer runs <strong>Swim L3</strong> 3:00–4:00p Pool (5), <strong>Yoga</strong> 4:00–5:00p
+    Studio B (16), <strong>Floor Hockey</strong> 5:00–5:45p Gym (9). 30 seats, 29 distinct children:
+    Maya Feldman is chained Swim L3 → Yoga. Three care rooms — Ocean (K–1), Blue (2–3), Red (4–6) — plus
+    parent pickup from the classroom. Exactly two children carry a real allergy, Noa Ackerman (Yoga) and
+    Eli Vargas (Floor Hockey); the other 27 render no allergy element at all.
+  </p>
+  <p>
+    <strong>Why no 3:00p child appears in a class roster.</strong> The program’s own rule (spec R2: a
+    class never ends after a child’s dismissal time) means a child who goes home at 3:00p is gone before
+    the first block ends and is never enrolled in it. The 3:00p wave is real and visible on Today; it
+    correctly cannot appear on My day. The three states shown are 3:12p arrival, 4:10p mid-program with
+    Swim L3 confirmed, and 5:18p dismissal with Swim L3 and Yoga confirmed and one Floor Hockey group
+    already routed.
+  </p>
+  <h3>What this mockup is not</h3>
+  <p>
+    Static sample data in a standalone page — no API, no live pickup stream, no module gating. If it is
+    built, every screen must check <code>hasModule('daily_ops')</code> before calling, per CLAUDE.md §3,
+    and the merged pickup queue only appears where <code>secure_pickup</code> is on.
+  </p>
+</section>
+`;
+</script>

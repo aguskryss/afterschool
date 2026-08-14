@@ -1,0 +1,81 @@
+services:
+  - type: web
+    name: kikar-afterschool
+    runtime: python
+    # Ohio rather than the Oregon default: the program is in Miami, and every
+    # request also makes a round trip to Supabase. Pick the Supabase region to
+    # match, or that hop is paid on every query.
+    region: ohio
+    # starter, not free, and three things depend on it staying that way. Free
+    # spins the instance down after ~15 minutes idle, which kills every open
+    # SSE stream, the LISTEN/NOTIFY listener thread, and the scheduler ticker.
+    # A parent waiting at the curb would get live pickup only if someone had
+    # touched the service recently, and a 1:00 PM attendance check would simply
+    # never fire, because 1:00 PM is exactly when nobody is using the app.
+    plan: starter
+    healthCheckPath: /api/health
+    # The SPA build output (public/app) is gitignored, so it has to be produced
+    # here — without the npm step the deploy would ship a backend with no
+    # frontend behind /app.
+    buildCommand: pip install -r requirements.txt && npm --prefix web ci && npm --prefix web run build
+    # --threads 64: every open SSE stream (pickups + parent) pins one worker
+    # thread for its lifetime. With 16 we ran out after a handful of portals
+    # were open and POSTs like /api/parent/pickup had to queue behind them,
+    # which is what made pickup notifications take 10+ minutes to appear.
+    #
+    # workers is back to 1 only because the free instance is small; the code no
+    # longer requires it. Pickup events travel over Postgres LISTEN/NOTIFY, so a
+    # publisher in one worker reaches subscribers in another. Raise this with
+    # the plan — it is a memory and connection-budget question now, not a
+    # correctness one: each worker holds its pool (maxconn 5) plus one listener
+    # connection, against the Supabase pooler's client cap.
+    startCommand: gunicorn server.app:app --bind 0.0.0.0:$PORT --timeout 120 --worker-class gthread --workers 1 --threads 64
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.11"
+      # Vite 8 requires Node 20+; Render's default is older.
+      - key: NODE_VERSION
+        value: "22.19.0"
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: ADMIN_INITIAL_PASSWORD
+        generateValue: true
+      - key: FORCE_HTTPS
+        value: "true"
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # Every request runs as this low-privilege role, so RLS is actually
+      # enforced. Must be a session-mode or direct connection (port 5432) —
+      # the transaction pooler accepts NOTIFY but never delivers it, and live
+      # pickup would silently reach nobody.
+      - key: DATABASE_URL
+        sync: false
+      # Schema work (init_db) needs the owner role, which can create tables.
+      # If this is unset the app falls back to DATABASE_URL and warns at boot
+      # that isolation is relying on application scoping alone.
+      - key: ADMIN_DATABASE_URL
+        sync: false
+      # Daily photos (the `photos` module). The bucket must be PRIVATE: reads
+      # go through short-lived signed URLs, and a public bucket would make
+      # every photo readable by anyone who guesses a path. Use the
+      # service_role key, never the anon key. Without these three the upload
+      # endpoint returns a clear 503 rather than failing obscurely.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SUPABASE_PHOTOS_BUCKET
+        value: photos
+      - key: SUPERADMIN_EMAIL
+        sync: false
+      - key: SUPERADMIN_INITIAL_PASSWORD
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      # Live demo (set value in the Render dashboard; toggle off after the demo).
+      # SEED_TEST_ACCOUNTS=1 seeds the demo parent/counselor + school + children.
+      # DEMO_MODE=1 enables the admin "Live Demo" launcher and /api/admin/demo-token.
+      - key: SEED_TEST_ACCOUNTS
+        sync: false
+      - key: DEMO_MODE
+        sync: false

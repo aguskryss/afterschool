@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "jclub",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["server/app.py"],
+      "port": 5001
+    }
+  ]
+}

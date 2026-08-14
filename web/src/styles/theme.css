@@ -1,0 +1,156 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/raleway';
+@import '@fontsource-variable/figtree';
+
+/* ─────────────────────────────────────────────────────────────────────
+   KIKAR AFTERSCHOOL — design tokens
+
+   Bright, colourful, and unmistakably for kids' programming. The earlier
+   cream-and-sand palette read as boutique hospitality; this one reads as an
+   afterschool: a clean cool-neutral canvas that lets saturated colour do the
+   talking, with every function carrying its own hue.
+
+   Sand survives only on the KIKAR wordmark, where the brand lives.
+
+   Colour is still meaningful, not decorative: status colours (here, absent,
+   pending) are reserved, and coral belongs to pickup alone.
+   ───────────────────────────────────────────────────────────────────── */
+@theme {
+  /* Canvas: cool light neutral. Reads "app", not "spa". */
+  --color-canvas-50: #f6f8fb;
+  --color-canvas-100: #eef2f7;
+  --color-canvas-200: #e2e8f0;
+
+  /* Brand sand — wordmark only */
+  --color-sand-300: #dbd1bf;
+  --color-sand-400: #c9bfa8;
+
+  /* Neutral text ramp, very slightly cool so it sits on the canvas */
+  --color-ink-300: #a8b1bd;
+  --color-ink-400: #8794a3;
+  --color-ink-500: #64748b;
+  --color-ink-600: #4a5568;
+  --color-ink-700: #364152;
+  --color-ink-800: #232d3f;
+  --color-ink-900: #141b2b;
+
+  /* Primary: a bright, confident blue */
+  --color-sky-50: #eef4ff;
+  --color-sky-100: #dbe6ff;
+  --color-sky-200: #b9ceff;
+  --color-sky-500: #2f6fed;
+  --color-sky-600: #2058ce;
+  --color-sky-700: #1a46a3;
+
+  /* Pickup — the one thing allowed to shout */
+  --color-coral-50: #fff0ec;
+  --color-coral-100: #ffdcd2;
+  --color-coral-500: #ff5a36;
+  --color-coral-600: #ea4220;
+  --color-coral-700: #c03214;
+
+  /* The mid and dark steps below were being USED before they existed. Tailwind
+     emits a utility only for a token that is declared here, so `border-sun-300`
+     on an element that also said `border-2` produced no colour rule and the
+     border fell back to currentColor — a black outline where a warning banner
+     wanted amber, on every screen that raises one. Missing tokens fail quietly
+     in exactly the direction that looks deliberate, so the ramps are completed
+     rather than the call sites edited: this file is the only place a colour is
+     allowed to come from. */
+
+  /* Here / confirmed */
+  --color-leaf-50: #e8f9ef;
+  --color-leaf-100: #c9f0d9;
+  --color-leaf-500: #16a34a;
+  --color-leaf-600: #12833c;
+  --color-leaf-700: #0d6630;
+
+  /* Pending / scheduled */
+  --color-sun-50: #fff7e6;
+  --color-sun-100: #ffeac0;
+  --color-sun-200: #fddc93;
+  --color-sun-300: #fbc85e;
+  --color-sun-400: #f8b02c;
+  --color-sun-500: #f59e0b;
+  --color-sun-600: #c97f06;
+  --color-sun-700: #9c6104;
+
+  /* Absent / destructive */
+  --color-berry-50: #ffeef2;
+  --color-berry-100: #ffd6de;
+  --color-berry-200: #ffb8c6;
+  --color-berry-500: #e11d48;
+  --color-berry-600: #bd1239;
+  --color-berry-700: #970c2c;
+
+  /* Extra function colours, so each action reads as its own thing */
+  --color-grape-50: #f4efff;
+  --color-grape-100: #e6daff;
+  --color-grape-500: #7c3aed;
+  --color-grape-600: #6528d4;
+
+  --color-teal-50: #e6fbf8;
+  --color-teal-100: #c2f4ec;
+  --color-teal-500: #0d9488;
+  --color-teal-600: #0a7a70;
+
+  /* Per-child identity colours. Kids get recognised by colour before they
+     get read by name, which is the whole point on a crowded roster. */
+  --color-kid-1: #f4713b;
+  --color-kid-2: #0ea5a4;
+  --color-kid-3: #8b5cf6;
+  --color-kid-4: #f0a30a;
+  --color-kid-5: #3b82f6;
+  --color-kid-6: #ec4899;
+
+  /* Figtree: geometric and modern, friendlier than a grotesk but far tighter
+     than a rounded display face, so rosters and tables stay readable. */
+  --font-sans: 'Figtree Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-brand: 'Raleway Variable', ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 1.5rem;
+  --radius-sheet: 2rem;
+
+  --shadow-soft: 0 1px 2px rgb(20 27 43 / 0.04), 0 6px 20px rgb(20 27 43 / 0.06);
+  --shadow-lift: 0 2px 6px rgb(20 27 43 / 0.06), 0 16px 36px rgb(20 27 43 / 0.10);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--color-canvas-50);
+    color: var(--color-ink-900);
+    font-family: var(--font-sans);
+    /* Safe areas so the PWA/native shell doesn't clip under the notch */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  /* A visible, consistent focus ring everywhere — the old app had none */
+  :focus-visible {
+    outline: 2px solid var(--color-sky-500);
+    outline-offset: 2px;
+    border-radius: 0.5rem;
+  }
+
+  /* Tap targets never smaller than 44px on touch devices */
+  @media (pointer: coarse) {
+    button,
+    a[role='button'],
+    [role='tab'] {
+      min-height: 2.75rem;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

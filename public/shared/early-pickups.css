@@ -1,0 +1,229 @@
+/* Early Pickups — shared component styles for counselor + admin portals.
+   Palette matches the existing app (teal primary #005F73, amber alerts). */
+
+.ep-section {
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 4px 14px rgba(0, 95, 115, 0.08);
+  padding: 20px 20px 16px;
+  margin-bottom: 20px;
+  border: 1px solid #e2e8f0;
+}
+
+.ep-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.ep-header-icon {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.ep-header-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #005F73;
+  letter-spacing: -0.01em;
+}
+
+.ep-header-count {
+  margin-left: auto;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+
+.ep-header-count.zero {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.ep-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #64748b;
+  margin-left: 8px;
+}
+.ep-status::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6);
+  animation: ep-pulse 2s infinite;
+}
+.ep-status.disconnected::before {
+  background: #94a3b8;
+  animation: none;
+}
+
+@keyframes ep-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6); }
+  70%  { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+.ep-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ep-card {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-left: 5px solid #f59e0b;
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  transition: opacity 0.4s ease, transform 0.4s ease, background 0.3s, border-color 0.3s;
+}
+
+.ep-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ep-card-message {
+  font-size: 1rem;
+  color: #1e293b;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.ep-card-message strong {
+  font-weight: 800;
+  color: #92400e;
+}
+
+.ep-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 0.78rem;
+  color: #78716c;
+  font-weight: 600;
+}
+.ep-card-meta .ep-clock {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ep-claim-btn {
+  background: #7c3aed;
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 14px 18px;
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  min-height: 48px;
+  min-width: 120px;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.3);
+  transition: background 0.15s, transform 0.08s, box-shadow 0.15s;
+  flex-shrink: 0;
+}
+.ep-claim-btn:hover { background: #6d28d9; }
+.ep-claim-btn:active { transform: scale(0.97); }
+.ep-claim-btn:disabled { opacity: 0.6; cursor: wait; }
+
+/* Claimed state — shown briefly to the claimer with an Undo link, or to
+   everyone else as a 1.5s "vanish" confirmation. */
+.ep-card.claimed {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  border-left-color: #10b981;
+}
+.ep-card.claimed .ep-card-message strong { color: #065f46; }
+
+.ep-claimed-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #065f46;
+  font-size: 0.95rem;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.ep-undo-btn {
+  background: transparent;
+  color: #065f46;
+  border: 1px solid #10b981;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 40px;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.ep-undo-btn:hover { background: #d1fae5; }
+
+.ep-card.vanishing {
+  opacity: 0;
+  transform: translateX(12px);
+}
+
+.ep-empty {
+  text-align: center;
+  padding: 22px 10px;
+  color: #64748b;
+}
+.ep-empty-icon {
+  font-size: 2rem;
+  margin-bottom: 6px;
+}
+.ep-empty-title {
+  font-weight: 700;
+  color: #0f766e;
+  margin-bottom: 2px;
+}
+.ep-empty-sub {
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.ep-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  background: #0f172a;
+  color: white;
+  padding: 12px 18px;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  z-index: 9999;
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+.ep-toast.show { opacity: 1; }
+.ep-toast.error { background: #b91c1c; }
+
+@media (max-width: 600px) {
+  .ep-section { padding: 16px 14px 14px; border-radius: 14px; }
+  .ep-card { flex-direction: column; align-items: stretch; gap: 10px; padding: 14px; }
+  .ep-claim-btn { width: 100%; padding: 14px; }
+  .ep-undo-btn { width: 100%; }
+  .ep-header-title { font-size: 1.05rem; }
+}

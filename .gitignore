@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Database (don't commit production data)
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment variables
+*.env
+.env.local
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+vapid_keys.json
+
+# Node / Vite
+node_modules/
+web/node_modules/
+public/app/
+
+# Client source files — REAL PII OF MINORS (names, DOB, allergies, parent
+# contacts). Never commit. Read them locally, commit only derived schema
+# and column mappings, never rows.
+docs/source-files/
+*.xlsx
+*.xls
+*.csv
