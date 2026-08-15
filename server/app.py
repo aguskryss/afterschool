@@ -9065,6 +9065,47 @@ def admin_upload_calendar():
     db.close()
     return jsonify({'added': added, 'errors': errors})
 
+@app.route('/api/admin/calendar/<int:event_id>', methods=['PUT'])
+@jwt_required()
+def admin_update_calendar_event(event_id):
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    data = request.json or {}
+
+    updates = {}
+    if 'event_date' in data:
+        event_date = (data.get('event_date') or '').strip()
+        if not event_date:
+            return jsonify({'error': 'Date cannot be empty'}), 400
+        updates['event_date'] = event_date
+    if 'event_type' in data:
+        event_type = data.get('event_type')
+        if event_type not in ('closed', 'mini_camp', 'early_dismissal', 'special_event'):
+            return jsonify({'error': 'Invalid event type'}), 400
+        updates['event_type'] = event_type
+    if 'title' in data:
+        title = (data.get('title') or '').strip()
+        if not title:
+            return jsonify({'error': 'Title cannot be empty'}), 400
+        updates['title'] = title
+    if 'description' in data:
+        updates['description'] = (data.get('description') or '').strip() or None
+    if not updates:
+        return jsonify({'error': 'Nothing to update'}), 400
+
+    sets = ', '.join(f"{k} = %s" for k in updates)
+    db = get_db()
+    cur = db.execute(
+        f"UPDATE calendar_events SET {sets} WHERE id = %s RETURNING id",
+        (*updates.values(), event_id),
+    )
+    if cur.rowcount == 0:
+        db.close()
+        return jsonify({'error': 'Event not found'}), 404
+    db.commit()
+    db.close()
+    return jsonify({'message': 'Event updated'})
+
 @app.route('/api/admin/calendar/<int:event_id>', methods=['DELETE'])
 @jwt_required()
 def admin_delete_calendar_event(event_id):

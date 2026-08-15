@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CalendarDays, Mail, TriangleAlert, Upload } from 'lucide-react'
+import { CalendarDays, Mail, Pencil, Plus, Trash2, TriangleAlert, Upload, X } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
+import { confirmDelete, notifyError } from '@/lib/confirm'
 import { DataTable, type Column } from '@/components/DataTable'
 import { Button, Card, Field } from '@/components/ui'
 
@@ -13,6 +14,124 @@ type Event = {
   event_type: string
   title: string
   description: string | null
+}
+
+const EVENT_TYPES = [
+  { value: 'closed', label: 'Closed' },
+  { value: 'early_dismissal', label: 'Early dismissal' },
+  { value: 'mini_camp', label: 'Mini camp' },
+  { value: 'special_event', label: 'Special event' },
+] as const
+
+/**
+ * One event at a time, for the closure that comes up mid-year rather than in
+ * the calendar spreadsheet everyone imported in August. Doubles as the edit
+ * form — same fields, PUT instead of POST when `event` is given.
+ */
+function EventForm({
+  event,
+  onClose,
+}: {
+  event?: Event
+  onClose: () => void
+}) {
+  const qc = useQueryClient()
+  const [eventDate, setEventDate] = useState(event?.event_date ?? '')
+  const [eventType, setEventType] = useState(event?.event_type ?? 'special_event')
+  const [title, setTitle] = useState(event?.title ?? '')
+  const [description, setDescription] = useState(event?.description ?? '')
+  const [error, setError] = useState('')
+
+  const save = useMutation({
+    mutationFn: () =>
+      api(event ? `/api/admin/calendar/${event.id}` : '/api/admin/calendar', {
+        method: event ? 'PUT' : 'POST',
+        body: {
+          event_date: eventDate,
+          event_type: eventType,
+          title: title.trim(),
+          description: description.trim(),
+        },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'calendar'] })
+      onClose()
+    },
+    onError: (e) =>
+      setError(e instanceof ApiError ? e.message : 'Could not save that.'),
+  })
+
+  return (
+    <Card className="mb-4 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <p className="font-extrabold text-ink-800">
+          {event ? 'Edit event' : 'Add an event'}
+        </p>
+        <button
+          type="button"
+          aria-label="Cancel"
+          onClick={onClose}
+          className="flex size-8 items-center justify-center rounded-full text-ink-400 hover:bg-canvas-100"
+        >
+          <X className="size-4" strokeWidth={2.4} />
+        </button>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field
+          label="Date"
+          type="date"
+          value={eventDate}
+          onChange={(e) => setEventDate(e.target.value)}
+        />
+        <label className="flex flex-col gap-1 text-[0.8rem] font-bold text-ink-600">
+          Type
+          <select
+            value={eventType}
+            onChange={(e) => setEventType(e.target.value)}
+            className="h-10 rounded-2xl border-2 border-canvas-200 bg-white px-3 text-[0.95rem] font-semibold text-ink-900 outline-none focus:border-sky-500"
+          >
+            {EVENT_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Field
+          label="Title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          className="sm:col-span-2"
+        />
+        <Field
+          label="Notes"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          className="sm:col-span-2"
+        />
+      </div>
+
+      {error && (
+        <p role="alert" className="mt-3 text-sm font-medium text-berry-600">
+          {error}
+        </p>
+      )}
+
+      <div className="mt-4 flex gap-2">
+        <Button
+          disabled={!eventDate || !title.trim()}
+          loading={save.isPending}
+          onClick={() => save.mutate()}
+        >
+          Save
+        </Button>
+        <Button variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+      </div>
+    </Card>
+  )
 }
 
 /** Bulk-add closures and special days from a spreadsheet. */
@@ -84,10 +203,24 @@ function CalendarUpload() {
 }
 
 export function AdminCalendar() {
+  const qc = useQueryClient()
   const [uploading, setUploading] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<Event | null>(null)
   const { data, isPending } = useQuery({
     queryKey: ['admin', 'calendar'],
     queryFn: () => api<Event[]>('/api/admin/calendar'),
+  })
+
+  const destroy = useMutation({
+    mutationFn: (id: number) =>
+      api(`/api/admin/calendar/${id}`, { method: 'DELETE' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'calendar'] }),
+    onError: (e) =>
+      notifyError(
+        'Could not delete that event',
+        e instanceof ApiError ? e.message : undefined,
+      ),
   })
 
   const columns: Column<Event>[] = [
@@ -103,13 +236,47 @@ export function AdminCalendar() {
         }),
     },
     { key: 'title', header: 'Event' },
-    { key: 'event_type', header: 'Type', secondary: true },
+    {
+      key: 'event_type',
+      header: 'Type',
+      secondary: true,
+      value: (e) => EVENT_TYPES.find((t) => t.value === e.event_type)?.label ?? e.event_type,
+    },
     {
       key: 'description',
       header: 'Notes',
       secondary: true,
       value: (e) => e.description ?? '',
       render: (e) => e.description ?? <span className="text-ink-400">—</span>,
+    },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      value: () => '',
+      render: (e) => (
+        <span className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            aria-label={`Edit ${e.title}`}
+            onClick={() => setEditing(e)}
+            className="flex size-9 items-center justify-center rounded-full text-ink-300 transition-colors hover:bg-canvas-100 hover:text-ink-600"
+          >
+            <Pencil className="size-4" strokeWidth={2.1} />
+          </button>
+          <button
+            type="button"
+            aria-label={`Delete ${e.title}`}
+            disabled={destroy.isPending}
+            onClick={async () => {
+              if (await confirmDelete(e.title)) destroy.mutate(e.id)
+            }}
+            className="flex size-9 items-center justify-center rounded-full text-ink-300 transition-colors hover:bg-berry-50 hover:text-berry-500 disabled:opacity-40"
+          >
+            <Trash2 className="size-4" strokeWidth={2.1} />
+          </button>
+        </span>
+      ),
     },
   ]
 
@@ -119,6 +286,10 @@ export function AdminCalendar() {
         Calendar
       </h1>
       {uploading && <CalendarUpload />}
+      {adding && <EventForm onClose={() => setAdding(false)} />}
+      {editing && (
+        <EventForm event={editing} onClose={() => setEditing(null)} />
+      )}
       <DataTable
         rows={data}
         columns={columns}
@@ -128,10 +299,16 @@ export function AdminCalendar() {
         emptyTitle="No events scheduled"
         emptyBody="Closures and special days added here show up in every parent's calendar."
         actions={
-          <Button size="sm" variant="outline" onClick={() => setUploading((v) => !v)}>
-            <Upload className="size-4" strokeWidth={2.1} />
-            {uploading ? 'Cancel' : 'Import events'}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={() => setAdding((v) => !v)}>
+              <Plus className="size-4" strokeWidth={2.6} />
+              {adding ? 'Cancel' : 'Add event'}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setUploading((v) => !v)}>
+              <Upload className="size-4" strokeWidth={2.1} />
+              {uploading ? 'Cancel' : 'Import events'}
+            </Button>
+          </div>
         }
       />
     </div>
