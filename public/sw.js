@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kikar-v6';
+const CACHE_NAME = 'afterschool-v7';
 // Only entries that are guaranteed to exist: addAll() rejects the whole
 // install if a single URL 404s, which would leave the app with no worker.
 const STATIC_ASSETS = [
@@ -30,6 +30,13 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   if (e.request.url.includes('/api/')) return; // never cache API calls
+  // Cross-origin requests (the Supabase logo/photos, Google Fonts, chart CDN)
+  // are not this worker's to intercept: the page's own CSP already decides
+  // whether the browser may load them, and proxying them through fetch()
+  // here re-subjects an img-src/font-src request to connect-src instead,
+  // which is stricter and breaks things the page is otherwise allowed to
+  // show. Left to the browser, they load exactly as if there were no worker.
+  if (new URL(e.request.url).origin !== self.location.origin) return;
   e.respondWith(
     fetch(e.request)
       .then(res => {
