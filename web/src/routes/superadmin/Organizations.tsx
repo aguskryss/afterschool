@@ -694,12 +694,30 @@ function OrgPanel({
   onClose: () => void
 }) {
   const qc = useQueryClient()
+  const [name, setName] = useState(org.name)
+  const [nameError, setNameError] = useState('')
   const [primary, setPrimary] = useState(org.brand_primary ?? '')
   const [accent, setAccent] = useState(org.brand_accent ?? '')
   const [error, setError] = useState('')
 
   const invalidate = () =>
     void qc.invalidateQueries({ queryKey: ['superadmin', 'organizations'] })
+
+  // Separate from colours: a bad hex is a formatting mistake, a blank name
+  // is a different kind of thing to stop someone from saving.
+  const saveName = useMutation({
+    mutationFn: () =>
+      api(`/api/superadmin/organizations/${org.id}`, {
+        method: 'PATCH',
+        body: { name: name.trim() },
+      }),
+    onSuccess: () => {
+      setNameError('')
+      invalidate()
+    },
+    onError: (e) =>
+      setNameError(e instanceof ApiError ? e.message : 'Could not save.'),
+  })
 
   // Colours only. The logo moved to OrgLogoCard, which owns both an upload and
   // the URL fallback — bundling a file upload into the same Save as two hex
@@ -765,6 +783,34 @@ function OrgPanel({
         </header>
 
         <div className="flex flex-col gap-4 p-5">
+          <Card className="p-4">
+            <p className="mb-1 font-extrabold text-ink-800">Name</p>
+            <p className="mb-3 text-[0.85rem] font-medium text-ink-500">
+              Shown on the sign-in screen and everywhere else in place of the
+              wordmark.
+            </p>
+            <Field
+              label="Name"
+              placeholder="Heather"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="mb-3"
+            />
+            {nameError && (
+              <p role="alert" className="mb-3 text-sm font-medium text-berry-600">
+                {nameError}
+              </p>
+            )}
+            <Button
+              full
+              loading={saveName.isPending}
+              disabled={!name.trim()}
+              onClick={() => saveName.mutate()}
+            >
+              Save name
+            </Button>
+          </Card>
+
           <OrgLogoCard org={org} />
 
           <Card className="p-4">
