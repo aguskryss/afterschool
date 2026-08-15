@@ -946,7 +946,7 @@ export function AdminRosterImport() {
     const blocked = data?.totals.actions?.blocked ?? 0
 
     return (
-      <div className="mx-auto w-full max-w-6xl">
+      <div className="mx-auto w-full max-w-[1800px]">
         {detail && <RowDetail row={detail} onClose={() => setDetail(null)} />}
 
         <h1 className="mb-1 text-[1.75rem] font-extrabold tracking-tight text-ink-900">

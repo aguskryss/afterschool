@@ -188,7 +188,7 @@ function ActivityRoster({
   ]
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-[1800px]">
       <Button variant="ghost" size="sm" className="mb-3" onClick={onBack}>
         <ArrowLeft className="size-4" strokeWidth={2.2} />
         All activities
@@ -403,7 +403,7 @@ export function AdminActivities() {
   ]
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-[1800px]">
       <h1 className="mb-6 text-[1.75rem] font-extrabold tracking-tight text-ink-900">
         Activities
       </h1>

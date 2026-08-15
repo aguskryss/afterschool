@@ -114,7 +114,7 @@ export function AdminCalendar() {
   ]
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-[1800px]">
       <h1 className="mb-6 text-[1.75rem] font-extrabold tracking-tight text-ink-900">
         Calendar
       </h1>
@@ -343,7 +343,7 @@ export function AdminMessages() {
   ]
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-[1800px]">
       <h1 className="mb-6 text-[1.75rem] font-extrabold tracking-tight text-ink-900">
         Messages
       </h1>

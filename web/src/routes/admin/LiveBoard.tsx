@@ -117,7 +117,7 @@ export function AdminLiveBoard() {
   )
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-[1800px]">
       <h1 className="mb-1 text-[1.75rem] font-extrabold tracking-tight text-ink-900">
         Live board
       </h1>

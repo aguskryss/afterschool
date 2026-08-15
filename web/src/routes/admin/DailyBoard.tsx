@@ -175,7 +175,7 @@ export function AdminDailyBoard() {
   const grouped = groupWarnings(gaps)
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-[1800px]">
       <h1 className="mb-2 text-[1.75rem] font-extrabold tracking-tight text-ink-900">
         Daily board
       </h1>

@@ -524,7 +524,7 @@ export function AdminConversations() {
   )
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-[1800px]">
       <h1 className="mb-6 text-[1.75rem] font-extrabold tracking-tight text-ink-900">
         Conversations
       </h1>

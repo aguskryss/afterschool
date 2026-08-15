@@ -143,7 +143,7 @@ export function AdminParents() {
   ]
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-[1800px]">
       <h1 className="mb-6 text-[1.75rem] font-extrabold tracking-tight text-ink-900">
         Parents
       </h1>
@@ -298,7 +298,7 @@ export function AdminCounselors() {
   ]
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-[1800px]">
       <h1 className="mb-6 text-[1.75rem] font-extrabold tracking-tight text-ink-900">
         Counselors
       </h1>
@@ -408,7 +408,7 @@ export function AdminAdmins() {
   ]
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-[1800px]">
       <h1 className="mb-6 text-[1.75rem] font-extrabold tracking-tight text-ink-900">
         Admins
       </h1>

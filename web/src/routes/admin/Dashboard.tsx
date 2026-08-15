@@ -182,7 +182,7 @@ export function AdminDashboard() {
   })
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-[1800px]">
       {/* Admins are on the receiving end too: a parent's message and a make-up
           request both push to them. */}
       <PushPrompt />

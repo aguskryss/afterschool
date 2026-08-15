@@ -249,7 +249,7 @@ export function AdminPhotos() {
   })
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-[1800px]">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-[1.75rem] font-extrabold tracking-tight text-ink-900">
           Photos

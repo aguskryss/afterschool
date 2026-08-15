@@ -219,7 +219,7 @@ export function AdminAttendance() {
   ]
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-[1800px]">
       <h1 className="mb-6 text-[1.75rem] font-extrabold tracking-tight text-ink-900">
         Attendance
       </h1>
@@ -287,7 +287,7 @@ export function AdminAbsences() {
   ]
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-[1800px]">
       <h1 className="mb-6 text-[1.75rem] font-extrabold tracking-tight text-ink-900">
         Absences
       </h1>
@@ -419,7 +419,7 @@ export function AdminTimeOff() {
   ]
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-[1800px]">
       <h1 className="mb-6 text-[1.75rem] font-extrabold tracking-tight text-ink-900">
         Day off requests
       </h1>
@@ -482,7 +482,7 @@ export function AdminSchools() {
   ]
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-[1800px]">
       <h1 className="mb-6 text-[1.75rem] font-extrabold tracking-tight text-ink-900">
         Schools
       </h1>
