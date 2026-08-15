@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Layers, Plus, Trash2, TriangleAlert, X } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
+import { confirmDelete } from '@/lib/confirm'
 import { Button, Card, EmptyState, Pill, Skeleton } from '@/components/ui'
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] as const
@@ -388,7 +389,14 @@ function BlockCard({
                 type="button"
                 aria-label={`Remove the rule sending grade ${rule.grade_label} to ${rule.room_name}`}
                 disabled={busy}
-                onClick={() => onDelete(rule.id)}
+                onClick={async () => {
+                  if (
+                    await confirmDelete(
+                      `the rule sending grade ${rule.grade_label} to ${rule.room_name}`,
+                    )
+                  )
+                    onDelete(rule.id)
+                }}
                 className="ms-auto rounded-full p-1.5 text-ink-400 hover:bg-berry-50 hover:text-berry-600 disabled:opacity-40"
               >
                 <Trash2 className="size-4" strokeWidth={2.4} />

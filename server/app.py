@@ -2332,6 +2332,69 @@ def admin_add_school():
     db.close()
     return jsonify({'message': 'School added'})
 
+@app.route('/api/admin/schools/<int:school_id>', methods=['PUT'])
+@jwt_required()
+def admin_update_school(school_id):
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    data = request.json or {}
+    updates = {}
+    if 'name' in data:
+        name = (data.get('name') or '').strip()
+        if not name:
+            return jsonify({'error': 'School name required'}), 400
+        updates['name'] = name
+    if 'division_type' in data:
+        division_type = (data.get('division_type') or '').strip()
+        if division_type not in ('none', 'grade', 'torah'):
+            return jsonify({'error': "division_type must be 'none', 'grade' or 'torah'"}), 400
+        updates['division_type'] = division_type
+    if not updates:
+        return jsonify({'error': 'Nothing to update'}), 400
+
+    sets = ', '.join(f"{k} = %s" for k in updates)
+    db = get_db()
+    try:
+        cur = db.execute(
+            f"UPDATE schools SET {sets} WHERE id = %s RETURNING id",
+            (*updates.values(), school_id),
+        )
+        if cur.rowcount == 0:
+            db.close()
+            return jsonify({'error': 'School not found'}), 404
+        db.commit()
+    except psycopg2.IntegrityError:
+        db.close()
+        return jsonify({'error': 'A school with that name already exists'}), 409
+    db.close()
+    return jsonify({'message': 'School updated'})
+
+@app.route('/api/admin/schools/<int:school_id>', methods=['DELETE'])
+@jwt_required()
+def admin_delete_school(school_id):
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    db = get_db()
+    try:
+        # No ON DELETE CASCADE from children.school_id on purpose: a school
+        # still holding kids is a data problem to notice, not to silently
+        # solve by orphaning them or wiping their enrollment.
+        in_use = db.execute(
+            "SELECT COUNT(*) AS n FROM children WHERE school_id = %s", (school_id,)
+        ).fetchone()['n']
+        if in_use:
+            return jsonify({
+                'error': f'{in_use} child{"ren" if in_use != 1 else ""} still '
+                         f'enrolled at this school — move or remove them first.'
+            }), 409
+        cur = db.execute("DELETE FROM schools WHERE id = %s", (school_id,))
+        if cur.rowcount == 0:
+            return jsonify({'error': 'School not found'}), 404
+        db.commit()
+    finally:
+        db.close()
+    return jsonify({'message': 'School deleted'})
+
 @app.route('/api/admin/counselors', methods=['GET'])
 @jwt_required()
 def admin_get_counselors():
@@ -3153,9 +3216,9 @@ def admin_add_child():
 @app.route('/api/admin/children/<int:child_id>', methods=['PUT'])
 @jwt_required()
 def admin_update_child(child_id):
-    """Set which weekdays a child attends.
+    """Set which weekdays a child attends, and/or the fields on their profile.
 
-    Two things this is careful about, both of which it used to get wrong:
+    Two things `days` is careful about, both of which it used to get wrong:
 
       * A body with no `days` key means "change nothing", not "attend
         nothing". It used to default to [] and then DELETE unconditionally,
@@ -3167,33 +3230,69 @@ def admin_update_child(child_id):
         re-inserted. registrations.dismissal_time lives on those rows, and it
         arrives from the roster import, not from this endpoint — rewriting
         the row would silently drop the hour the child goes home.
+
+    The profile fields are the same "present means change it" rule, field by
+    field — a form that only shows some of a child's data must not be able to
+    null out the rest of it by omission.
     """
     if not require_admin():
         return jsonify({'error': 'Unauthorized'}), 403
     data = request.json or {}
-    if 'days' not in data:
-        return jsonify({'message': 'Nothing to update'})
-
-    days = data.get('days') or []
-    if not isinstance(days, list):
-        return jsonify({'error': 'days must be a list of weekday names'}), 400
-    invalid = [d for d in days if d not in WEEKDAY_ORDER]
-    if invalid:
-        return jsonify({'error': f'Invalid weekday: {invalid[0]}'}), 400
 
     db = get_db()
     try:
-        db.execute(
-            "DELETE FROM registrations WHERE child_id = %s AND day_of_week <> ALL(%s)",
-            (child_id, days),
-        )
-        for day in days:
+        if 'days' in data:
+            days = data.get('days') or []
+            if not isinstance(days, list):
+                return jsonify({'error': 'days must be a list of weekday names'}), 400
+            invalid = [d for d in days if d not in WEEKDAY_ORDER]
+            if invalid:
+                return jsonify({'error': f'Invalid weekday: {invalid[0]}'}), 400
             db.execute(
-                "INSERT INTO registrations (child_id, day_of_week) VALUES (%s, %s) "
-                "ON CONFLICT (child_id, day_of_week) DO NOTHING",
-                (child_id, day),
+                "DELETE FROM registrations WHERE child_id = %s AND day_of_week <> ALL(%s)",
+                (child_id, days),
             )
+            for day in days:
+                db.execute(
+                    "INSERT INTO registrations (child_id, day_of_week) VALUES (%s, %s) "
+                    "ON CONFLICT (child_id, day_of_week) DO NOTHING",
+                    (child_id, day),
+                )
+
+        updates = {}
+        if 'name' in data:
+            name = (data.get('name') or '').strip()
+            if not name:
+                return jsonify({'error': 'Name cannot be empty'}), 400
+            updates['name'] = name
+        if 'school_id' in data:
+            school_id = data.get('school_id')
+            if not school_id:
+                return jsonify({'error': 'School cannot be empty'}), 400
+            updates['school_id'] = school_id
+        if 'service_type' in data:
+            updates['service_type'] = (data.get('service_type') or '').strip()
+        if 'allergies' in data:
+            updates['allergies'] = (data.get('allergies') or '').strip() or None
+        if 'notes' in data:
+            updates['notes'] = (data.get('notes') or '').strip() or None
+        if 'active' in data:
+            updates['active'] = 1 if data.get('active') else 0
+
+        if updates:
+            sets = ', '.join(f"{k} = %s" for k in updates)
+            cur = db.execute(
+                f"UPDATE children SET {sets} WHERE id = %s RETURNING id",
+                (*updates.values(), child_id),
+            )
+            if cur.rowcount == 0:
+                return jsonify({'error': 'Child not found'}), 404
+        elif 'days' not in data:
+            return jsonify({'message': 'Nothing to update'})
+
         db.commit()
+    except psycopg2.errors.ForeignKeyViolation:
+        return jsonify({'error': 'That school does not exist'}), 400
     finally:
         db.close()
     return jsonify({'message': 'Child updated'})
@@ -3241,6 +3340,44 @@ def admin_delete_parent(parent_id):
     finally:
         db.close()
 
+@app.route('/api/admin/parents/<int:parent_id>', methods=['PATCH'])
+@jwt_required()
+def admin_update_parent(parent_id):
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    data = request.json or {}
+    updates = {}
+    if 'name' in data:
+        name = (data.get('name') or '').strip()
+        if not name:
+            return jsonify({'error': 'Name cannot be empty'}), 400
+        updates['name'] = name
+    if 'email' in data:
+        email = (data.get('email') or '').strip().lower()
+        if not email:
+            return jsonify({'error': 'Email cannot be empty'}), 400
+        updates['email'] = email
+    if not updates:
+        return jsonify({'error': 'Nothing to update'}), 400
+
+    sets = ', '.join(f"{k} = %s" for k in updates)
+    db = get_db()
+    try:
+        cur = db.execute(
+            f"UPDATE users SET {sets} WHERE id = %s AND role = 'parent' RETURNING id",
+            (*updates.values(), parent_id),
+        )
+        if cur.rowcount == 0:
+            db.close()
+            return jsonify({'error': 'Parent not found'}), 404
+        db.commit()
+    except psycopg2.IntegrityError:
+        db.close()
+        return jsonify({'error': 'Email already in use'}), 409
+    db.close()
+    return jsonify({'message': 'Parent updated'})
+
+
 @app.route('/api/admin/counselors/<int:counselor_id>', methods=['DELETE'])
 @jwt_required()
 def admin_delete_counselor(counselor_id):
@@ -3256,6 +3393,44 @@ def admin_delete_counselor(counselor_id):
         return jsonify({'error': 'Cannot delete: linked records still reference this user. Apply sql/12_fix_user_delete_fk_cascade.sql.'}), 409
     finally:
         db.close()
+
+@app.route('/api/admin/counselors/<int:counselor_id>', methods=['PATCH'])
+@jwt_required()
+def admin_update_counselor(counselor_id):
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    data = request.json or {}
+    updates = {}
+    if 'name' in data:
+        name = (data.get('name') or '').strip()
+        if not name:
+            return jsonify({'error': 'Name cannot be empty'}), 400
+        updates['name'] = name
+    if 'email' in data:
+        email = (data.get('email') or '').strip().lower()
+        if not email:
+            return jsonify({'error': 'Email cannot be empty'}), 400
+        updates['email'] = email
+    if not updates:
+        return jsonify({'error': 'Nothing to update'}), 400
+
+    sets = ', '.join(f"{k} = %s" for k in updates)
+    db = get_db()
+    try:
+        cur = db.execute(
+            f"UPDATE users SET {sets} WHERE id = %s AND role = 'counselor' RETURNING id",
+            (*updates.values(), counselor_id),
+        )
+        if cur.rowcount == 0:
+            db.close()
+            return jsonify({'error': 'Counselor not found'}), 404
+        db.commit()
+    except psycopg2.IntegrityError:
+        db.close()
+        return jsonify({'error': 'Email already in use'}), 409
+    db.close()
+    return jsonify({'message': 'Counselor updated'})
+
 
 @app.route('/api/admin/admins', methods=['GET'])
 @jwt_required()
@@ -3371,6 +3546,44 @@ def admin_delete_admin(admin_id):
     db.commit()
     db.close()
     return jsonify({'message': 'Admin deleted'})
+
+
+@app.route('/api/admin/admins/<int:admin_id>', methods=['PATCH'])
+@jwt_required()
+def admin_update_admin(admin_id):
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    data = request.json or {}
+    updates = {}
+    if 'name' in data:
+        name = (data.get('name') or '').strip()
+        if not name:
+            return jsonify({'error': 'Name cannot be empty'}), 400
+        updates['name'] = name
+    if 'email' in data:
+        email = (data.get('email') or '').strip().lower()
+        if not email:
+            return jsonify({'error': 'Email cannot be empty'}), 400
+        updates['email'] = email
+    if not updates:
+        return jsonify({'error': 'Nothing to update'}), 400
+
+    sets = ', '.join(f"{k} = %s" for k in updates)
+    db = get_db()
+    try:
+        cur = db.execute(
+            f"UPDATE users SET {sets} WHERE id = %s AND role = 'admin' RETURNING id",
+            (*updates.values(), admin_id),
+        )
+        if cur.rowcount == 0:
+            db.close()
+            return jsonify({'error': 'Admin not found'}), 404
+        db.commit()
+    except psycopg2.IntegrityError:
+        db.close()
+        return jsonify({'error': 'Email already in use'}), 409
+    db.close()
+    return jsonify({'message': 'Admin updated'})
 
 # In-memory state for the bulk "send invitations to all parents" job.
 #

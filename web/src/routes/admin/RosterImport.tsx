@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileSpreadsheet, Upload, X } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
+import { confirmAction } from '@/lib/confirm'
 import { DataTable, type Column } from '@/components/DataTable'
 import { Button, Card, EmptyState, Pill } from '@/components/ui'
 
@@ -1051,15 +1052,17 @@ export function AdminRosterImport() {
               </Button>
               <Button
                 loading={commit.isPending}
-                onClick={() => {
+                onClick={async () => {
                   // Blocked rows are skipped, not fatal — holding a hundred and
                   // fifty children hostage to one unreadable cell helps nobody.
                   // Saying how many, before the click, is the honest middle.
                   if (
                     blocked > 0 &&
-                    !window.confirm(
+                    !(await confirmAction(
+                      `Skip ${blocked} row${blocked === 1 ? '' : 's'}?`,
                       `${blocked} row${blocked === 1 ? '' : 's'} cannot be imported and will be skipped. Import the rest?`,
-                    )
+                      'Import the rest',
+                    ))
                   )
                     return
                   commit.mutate()

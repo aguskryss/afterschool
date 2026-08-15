@@ -9,6 +9,7 @@ import {
   TriangleAlert,
 } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
+import { confirmDelete } from '@/lib/confirm'
 import { Button, Card, EmptyState, Pill, Skeleton } from '@/components/ui'
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] as const
@@ -268,7 +269,9 @@ export function AdminClasses() {
                 session={session}
                 saving={save.isPending}
                 onSave={(patch) => save.mutate({ id: session.id, ...patch })}
-                onDelete={() => destroy.mutate(session.id)}
+                onDelete={async () => {
+                  if (await confirmDelete(session.name)) destroy.mutate(session.id)
+                }}
               />
             ))}
           </ul>

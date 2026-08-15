@@ -12,6 +12,8 @@ import {
   AddPersonForm,
   BulkInviteCard,
   DeletePerson,
+  EditPersonButton,
+  EditPersonForm,
   InviteStatus,
   ResendInvite,
   SetupLink,
@@ -48,6 +50,7 @@ type Parent = {
 
 export function AdminParents() {
   const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<Parent | null>(null)
   // Needed by AddChild below: a child cannot be enrolled without a school.
   // Same query key the counselors table uses, so it costs nothing here.
   const { data: schools } = useSchools()
@@ -132,6 +135,7 @@ export function AdminParents() {
               />
             </>
           )}
+          <EditPersonButton onClick={() => setEditing(p)} />
           <DeletePerson
             endpoint={`/api/admin/parents/${p.id}`}
             what={p.name.split(' ')[0]}
@@ -149,6 +153,17 @@ export function AdminParents() {
       </h1>
 
       <BulkInviteCard />
+
+      {editing && (
+        <EditPersonForm
+          endpoint={`/api/admin/parents/${editing.id}`}
+          name={editing.name}
+          email={editing.email}
+          what="parent"
+          invalidate={['admin', 'parents']}
+          onClose={() => setEditing(null)}
+        />
+      )}
 
       {adding && (
         <AddPersonForm
@@ -211,6 +226,7 @@ type Counselor = {
 export function AdminCounselors() {
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState<Counselor | null>(null)
+  const [editingPerson, setEditingPerson] = useState<Counselor | null>(null)
   const { data: schools } = useSchools()
   const { data, isPending } = useQuery({
     queryKey: ['admin', 'counselors'],
@@ -287,6 +303,7 @@ export function AdminCounselors() {
               />
             </>
           )}
+          <EditPersonButton onClick={() => setEditingPerson(c)} />
           <DeletePerson
             endpoint={`/api/admin/counselors/${c.id}`}
             what={c.name.split(' ')[0]}
@@ -310,6 +327,17 @@ export function AdminCounselors() {
           invalidate={['admin', 'counselors']}
           schools={schools ?? []}
           onDone={() => setAdding(false)}
+        />
+      )}
+
+      {editingPerson && (
+        <EditPersonForm
+          endpoint={`/api/admin/counselors/${editingPerson.id}`}
+          name={editingPerson.name}
+          email={editingPerson.email}
+          what="counselor"
+          invalidate={['admin', 'counselors']}
+          onClose={() => setEditingPerson(null)}
         />
       )}
 
@@ -352,6 +380,7 @@ type Admin = {
 
 export function AdminAdmins() {
   const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<Admin | null>(null)
   const { data, isPending } = useQuery({
     queryKey: ['admin', 'admins'],
     queryFn: () => api<Admin[]>('/api/admin/admins'),
@@ -383,27 +412,29 @@ export function AdminAdmins() {
       header: '',
       align: 'right',
       value: () => '',
-      render: (a) =>
-        // Never offer to delete or re-invite yourself: locking the last
-        // administrator out of their own program isn't recoverable from here.
-        a.is_self ? null : (
-          <span className="flex items-center justify-end gap-2">
-            {!a.password_set && (
-              <>
-                <SetupLink endpoint={`/api/admin/admins/${a.id}/setup-link`} />
-                <ResendInvite
-                  endpoint={`/api/admin/admins/${a.id}/resend-invite`}
-                  label={a.last_invite_at ? 'Resend' : 'Invite'}
-                />
-              </>
-            )}
+      render: (a) => (
+        <span className="flex items-center justify-end gap-2">
+          {!a.password_set && (
+            <>
+              <SetupLink endpoint={`/api/admin/admins/${a.id}/setup-link`} />
+              <ResendInvite
+                endpoint={`/api/admin/admins/${a.id}/resend-invite`}
+                label={a.last_invite_at ? 'Resend' : 'Invite'}
+              />
+            </>
+          )}
+          <EditPersonButton onClick={() => setEditing(a)} />
+          {/* Never offer to delete yourself: locking the last administrator
+              out of their own program isn't recoverable from here. */}
+          {!a.is_self && (
             <DeletePerson
               endpoint={`/api/admin/admins/${a.id}`}
               what={a.name.split(' ')[0]}
               invalidate={['admin', 'admins']}
             />
-          </span>
-        ),
+          )}
+        </span>
+      ),
     },
   ]
 
@@ -412,6 +443,17 @@ export function AdminAdmins() {
       <h1 className="mb-6 text-[1.75rem] font-extrabold tracking-tight text-ink-900">
         Admins
       </h1>
+
+      {editing && (
+        <EditPersonForm
+          endpoint={`/api/admin/admins/${editing.id}`}
+          name={editing.name}
+          email={editing.email}
+          what="admin"
+          invalidate={['admin', 'admins']}
+          onClose={() => setEditing(null)}
+        />
+      )}
 
       {adding && (
         <AddPersonForm

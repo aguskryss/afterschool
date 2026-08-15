@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Camera, Trash2, X } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
+import { confirmDelete } from '@/lib/confirm'
 import { Button, Card, EmptyState, Skeleton } from '@/components/ui'
 import { downscale } from '@/lib/image'
 import { matchesName } from '@/lib/roster'
@@ -340,7 +341,9 @@ export function AdminPhotos() {
                 <button
                   type="button"
                   aria-label="Delete photo"
-                  onClick={() => remove.mutate(p.id)}
+                  onClick={async () => {
+                    if (await confirmDelete('this photo')) remove.mutate(p.id)
+                  }}
                   className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-300 transition-colors hover:bg-berry-50 hover:text-berry-500"
                 >
                   <Trash2 className="size-4" strokeWidth={2.1} />

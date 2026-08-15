@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Baby, Mail, Phone } from 'lucide-react'
-import { api } from '@/lib/api'
+import { ArrowLeft, Baby, Mail, Pencil, Phone, Trash2 } from 'lucide-react'
+import { api, ApiError } from '@/lib/api'
+import { confirmDelete, notifyError } from '@/lib/confirm'
 import { DataTable, type Column } from '@/components/DataTable'
-import { Avatar, Card, EmptyState, Pill, Skeleton } from '@/components/ui'
+import { Avatar, Button, Card, EmptyState, Field, Pill, Skeleton } from '@/components/ui'
 import {
   STATUS_LABEL,
   STATUS_TONE,
@@ -376,12 +377,164 @@ function Section({
 
 const NONE = <span className="font-medium text-ink-400">—</span>
 
+/**
+ * The fields worth fixing by hand: a typo in the name, a school the roster
+ * import got wrong, allergies or notes that changed mid-year, or taking a
+ * child out of service without erasing their attendance history (that's
+ * `active`, not delete — delete is for a row that should never have
+ * existed). Weekly schedule stays on the roster's own days-strip UI; this
+ * form only touches columns days-attendance doesn't.
+ */
+function EditChildForm({
+  child,
+  schools,
+  onClose,
+}: {
+  child: ChildDetail
+  schools: School[]
+  onClose: () => void
+}) {
+  const qc = useQueryClient()
+  const [name, setName] = useState(child.name)
+  const [schoolId, setSchoolId] = useState(child.school_id)
+  const [serviceType, setServiceType] = useState(child.service_type)
+  const [allergies, setAllergies] = useState(child.allergies ?? '')
+  const [notes, setNotes] = useState(child.notes ?? '')
+  const [active, setActive] = useState(child.active)
+  const [error, setError] = useState('')
+
+  const save = useMutation({
+    mutationFn: () =>
+      api(`/api/admin/children/${child.id}`, {
+        method: 'PUT',
+        body: {
+          name: name.trim(),
+          school_id: schoolId,
+          service_type: serviceType.trim(),
+          allergies,
+          notes,
+          active,
+        },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'child', String(child.id)] })
+      void qc.invalidateQueries({ queryKey: ['admin', 'children'] })
+      onClose()
+    },
+    onError: (e) =>
+      setError(e instanceof ApiError ? e.message : 'Could not save that.'),
+  })
+
+  return (
+    <Card className="mb-4 p-4">
+      <p className="mb-3 font-extrabold text-ink-800">Edit child</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field
+          label="Full name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <label className="flex flex-col gap-1 text-[0.8rem] font-bold text-ink-600">
+          School
+          <select
+            value={schoolId}
+            onChange={(e) => setSchoolId(Number(e.target.value))}
+            className="h-10 rounded-2xl border-2 border-canvas-200 bg-white px-3 text-[0.95rem] font-semibold text-ink-900 outline-none focus:border-sky-500"
+          >
+            {schools.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Field
+          label="Service type"
+          value={serviceType}
+          onChange={(e) => setServiceType(e.target.value)}
+        />
+        <Field
+          label="Allergies"
+          value={allergies}
+          onChange={(e) => setAllergies(e.target.value)}
+          hint="Shown to counselors on every roster."
+        />
+      </div>
+
+      <label className="mt-3 flex flex-col gap-1 text-[0.8rem] font-bold text-ink-600">
+        Notes
+        <textarea
+          rows={3}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          className="rounded-2xl border-2 border-canvas-200 bg-white px-4 py-2.5 text-[0.9rem] font-medium text-ink-900 outline-none focus:border-sky-500"
+        />
+      </label>
+
+      <label className="mt-3 flex items-center gap-2 text-[0.88rem] font-semibold text-ink-700">
+        <input
+          type="checkbox"
+          checked={active}
+          onChange={(e) => setActive(e.target.checked)}
+          className="size-4 accent-sky-500"
+        />
+        Active in the program
+      </label>
+      {!active && (
+        <p className="mt-1 text-[0.82rem] font-semibold text-sun-600">
+          An inactive child drops off every roster and headcount, but their
+          history stays intact — unlike Delete.
+        </p>
+      )}
+
+      {error && (
+        <p role="alert" className="mt-3 text-sm font-medium text-berry-600">
+          {error}
+        </p>
+      )}
+
+      <div className="mt-4 flex gap-2">
+        <Button
+          disabled={!name.trim() || !schoolId}
+          loading={save.isPending}
+          onClick={() => save.mutate()}
+        >
+          Save
+        </Button>
+        <Button variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+      </div>
+    </Card>
+  )
+}
+
 export function AdminChildProfile() {
   const { id } = useParams()
+  const navigate = useNavigate()
+  const qc = useQueryClient()
+  const [editing, setEditing] = useState(false)
   const { data: c, isPending, isError } = useQuery({
     queryKey: ['admin', 'child', id],
     queryFn: () => api<ChildDetail>(`/api/admin/children/${id}`),
     enabled: Boolean(id),
+  })
+  const { data: schools } = useQuery({
+    queryKey: ['admin', 'schools'],
+    queryFn: () => api<School[]>('/api/admin/schools'),
+  })
+
+  const destroy = useMutation({
+    mutationFn: () => api(`/api/admin/children/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'children'] })
+      navigate('/children')
+    },
+    onError: (e) =>
+      notifyError(
+        'Could not delete that child',
+        e instanceof ApiError ? e.message : undefined,
+      ),
   })
 
   if (isPending) {
@@ -440,8 +593,41 @@ export function AdminChildProfile() {
         </div>
         <div className="ms-auto flex items-center gap-2">
           <Pill status={TONES[c.status]}>{LABELS[c.status]}</Pill>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setEditing((v) => !v)}
+          >
+            <Pencil className="size-3.5" strokeWidth={2.4} />
+            {editing ? 'Cancel' : 'Edit'}
+          </Button>
+          <button
+            type="button"
+            aria-label={`Delete ${c.name}`}
+            disabled={destroy.isPending}
+            onClick={async () => {
+              if (
+                await confirmDelete(
+                  c.name,
+                  'This removes their whole attendance history too. Mark them inactive instead to just take them off the roster.',
+                )
+              )
+                destroy.mutate()
+            }}
+            className="flex size-9 items-center justify-center rounded-full text-ink-300 transition-colors hover:bg-berry-50 hover:text-berry-500 disabled:opacity-40"
+          >
+            <Trash2 className="size-4" strokeWidth={2.1} />
+          </button>
         </div>
       </div>
+
+      {editing && (
+        <EditChildForm
+          child={c}
+          schools={schools ?? []}
+          onClose={() => setEditing(false)}
+        />
+      )}
 
       {/* Allergies are the one field that changes what a counselor does in the
           moment, so it sits above everything else rather than in a table. */}

@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Repeat2, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { confirmDelete } from '@/lib/confirm'
 import { DataTable, type Column } from '@/components/DataTable'
 import { Button, Pill } from '@/components/ui'
 
@@ -143,7 +144,10 @@ export function AdminMakeupRequests() {
           size="sm"
           variant="ghost"
           aria-label={`Remove the make-up for ${r.child_name}`}
-          onClick={() => remove.mutate(r.id)}
+          onClick={async () => {
+            if (await confirmDelete(`${r.child_name}'s make-up`))
+              remove.mutate(r.id)
+          }}
         >
           <Trash2 className="size-4" strokeWidth={2.1} />
         </Button>

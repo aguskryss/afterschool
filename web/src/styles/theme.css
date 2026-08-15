@@ -154,3 +154,14 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* SweetAlert2 (web/src/lib/confirm.ts) reads its colours from the theme
+   mixin already; this is just the corner radius, matching --radius-card
+   instead of the library's own sharper default. */
+.swal2-popup {
+  border-radius: var(--radius-card);
+}
+.swal2-actions .swal2-styled {
+  border-radius: 999px;
+  font-weight: 800;
+}

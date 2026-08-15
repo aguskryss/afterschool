@@ -2,10 +2,11 @@ import type { ReactNode } from 'react'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarDays, GraduationCap, School, UserRound } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
 import { DataTable, type Column } from '@/components/DataTable'
 import { ExportButton } from '@/components/ExportButton'
-import { Avatar, Button, Card, Pill, Skeleton } from '@/components/ui'
+import { AddButton, DeletePerson, EditPersonButton } from '@/components/people'
+import { Avatar, Button, Card, Field, Pill, Skeleton } from '@/components/ui'
 
 function toIso(d: Date): string {
   return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}-${`${d.getDate()}`.padStart(2, '0')}`
@@ -460,7 +461,125 @@ export function AdminTimeOff() {
 
 type SchoolRow = { id: number; name: string; division_type: string }
 
+const DIVISIONS = [
+  { value: 'none', label: 'None' },
+  { value: 'grade', label: 'Grade' },
+  { value: 'torah', label: 'Torah' },
+] as const
+
+/**
+ * Adds a school with just a name — division_type defaults to 'none' on the
+ * server, same as the roster importer creating one on the fly. Set it from
+ * Edit once the school exists; a JCC usually knows the name before it knows
+ * how the roster splits.
+ */
+function AddSchoolForm({ onDone }: { onDone: () => void }) {
+  const qc = useQueryClient()
+  const [name, setName] = useState('')
+  const [error, setError] = useState('')
+
+  const create = useMutation({
+    mutationFn: () => api('/api/admin/schools', { method: 'POST', body: { name } }),
+    onSuccess: () => {
+      setName('')
+      setError('')
+      void qc.invalidateQueries({ queryKey: ['admin', 'schools'] })
+      onDone()
+    },
+    onError: (e) => setError(e instanceof ApiError ? e.message : 'Could not add that.'),
+  })
+
+  return (
+    <Card className="mb-4 p-4">
+      <p className="mb-3 font-extrabold text-ink-800">Add a school</p>
+      <Field
+        label="School name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        className="mb-3"
+      />
+      {error && (
+        <p role="alert" className="mb-3 text-sm font-medium text-berry-600">
+          {error}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <Button disabled={!name.trim()} loading={create.isPending} onClick={() => create.mutate()}>
+          Add school
+        </Button>
+        <Button variant="ghost" onClick={onDone}>
+          Cancel
+        </Button>
+      </div>
+    </Card>
+  )
+}
+
+function EditSchoolForm({
+  school,
+  onClose,
+}: {
+  school: SchoolRow
+  onClose: () => void
+}) {
+  const qc = useQueryClient()
+  const [name, setName] = useState(school.name)
+  const [division, setDivision] = useState(school.division_type)
+  const [error, setError] = useState('')
+
+  const save = useMutation({
+    mutationFn: () =>
+      api(`/api/admin/schools/${school.id}`, {
+        method: 'PUT',
+        body: { name: name.trim(), division_type: division },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'schools'] })
+      onClose()
+    },
+    onError: (e) => setError(e instanceof ApiError ? e.message : 'Could not save that.'),
+  })
+
+  return (
+    <Card className="mb-4 p-4">
+      <p className="mb-3 font-extrabold text-ink-800">Edit school</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="School name" value={name} onChange={(e) => setName(e.target.value)} />
+        <label className="flex flex-col gap-1 text-[0.8rem] font-bold text-ink-600">
+          Division
+          <select
+            value={division}
+            onChange={(e) => setDivision(e.target.value)}
+            className="h-10 rounded-2xl border-2 border-canvas-200 bg-white px-3 text-[0.95rem] font-semibold text-ink-900 outline-none focus:border-sky-500"
+          >
+            {DIVISIONS.map((d) => (
+              <option key={d.value} value={d.value}>
+                {d.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {error && (
+        <p role="alert" className="mt-3 text-sm font-medium text-berry-600">
+          {error}
+        </p>
+      )}
+      <div className="mt-4 flex gap-2">
+        <Button disabled={!name.trim()} loading={save.isPending} onClick={() => save.mutate()}>
+          Save
+        </Button>
+        <Button variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+      </div>
+    </Card>
+  )
+}
+
 export function AdminSchools() {
+  const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<SchoolRow | null>(null)
   const { data, isPending } = useQuery({
     queryKey: ['admin', 'schools'],
     queryFn: () => api<SchoolRow[]>('/api/admin/schools'),
@@ -471,13 +590,28 @@ export function AdminSchools() {
     {
       key: 'division_type',
       header: 'Division',
-      align: 'right',
       render: (s) =>
         s.division_type === 'none' ? (
           <Pill status="neutral">None</Pill>
         ) : (
           <Pill status="neutral">{s.division_type}</Pill>
         ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      value: () => '',
+      render: (s) => (
+        <span className="flex items-center justify-end gap-2">
+          <EditPersonButton onClick={() => setEditing(s)} />
+          <DeletePerson
+            endpoint={`/api/admin/schools/${s.id}`}
+            what={s.name}
+            invalidate={['admin', 'schools']}
+          />
+        </span>
+      ),
     },
   ]
 
@@ -486,6 +620,12 @@ export function AdminSchools() {
       <h1 className="mb-6 text-[1.75rem] font-extrabold tracking-tight text-ink-900">
         Schools
       </h1>
+
+      {adding && <AddSchoolForm onDone={() => setAdding(false)} />}
+      {editing && (
+        <EditSchoolForm school={editing} onClose={() => setEditing(null)} />
+      )}
+
       <DataTable
         rows={data}
         columns={columns}
@@ -493,6 +633,11 @@ export function AdminSchools() {
         searchPlaceholder="Search schools…"
         emptyIcon={<School className="size-7" strokeWidth={1.8} />}
         emptyTitle="No schools yet"
+        actions={
+          <AddButton open={adding} onToggle={() => setAdding((v) => !v)}>
+            {adding ? 'Cancel' : 'Add school'}
+          </AddButton>
+        }
       />
     </div>
   )

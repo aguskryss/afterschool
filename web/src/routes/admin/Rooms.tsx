@@ -10,6 +10,7 @@ import {
   X,
 } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
+import { confirmDelete, notifyError } from '@/lib/confirm'
 import { Button, Card, EmptyState, Pill, Skeleton } from '@/components/ui'
 
 type Room = {
@@ -106,11 +107,12 @@ export function AdminRooms() {
   const destroy = useMutation({
     mutationFn: (id: number) =>
       api<{ deleted: boolean }>(`/api/admin/rooms/${id}`, { method: 'DELETE' }),
-    onSuccess: () => {
-      setError('')
-      refresh()
-    },
-    onError: (e) => fail(e, 'Could not delete that room.'),
+    onSuccess: refresh,
+    onError: (e) =>
+      notifyError(
+        'Could not delete that room',
+        e instanceof ApiError ? e.message : undefined,
+      ),
   })
 
   const rooms = data ?? []
@@ -250,7 +252,15 @@ export function AdminRooms() {
                       <button
                         type="button"
                         aria-label={`Delete ${room.name} for good`}
-                        onClick={() => destroy.mutate(room.id)}
+                        onClick={async () => {
+                          if (
+                            await confirmDelete(
+                              room.name,
+                              'This is separate from archiving and cannot be undone.',
+                            )
+                          )
+                            destroy.mutate(room.id)
+                        }}
                         className="rounded-full p-1.5 text-ink-400 hover:bg-berry-50 hover:text-berry-600"
                       >
                         <Trash2 className="size-4" strokeWidth={2.2} />

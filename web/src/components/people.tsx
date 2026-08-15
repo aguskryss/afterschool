@@ -5,12 +5,14 @@ import {
   Copy,
   Link as LinkIcon,
   MailCheck,
+  Pencil,
   Plus,
   Send,
   Trash2,
   X,
 } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
+import { confirmDelete, notifyError } from '@/lib/confirm'
 import { Button, Card, Field, Pill } from '@/components/ui'
 
 /* ── Add a person ────────────────────────────────────────────────────── */
@@ -488,6 +490,120 @@ export function AddChild({
   )
 }
 
+/* ── Edit a person's name or email ───────────────────────────────────── */
+
+/**
+ * A small icon trigger for the actions column. Rendering the form itself
+ * inline here would blow up the row's height inside a `<td>`, so this only
+ * opens it — same split the counselors table already uses for "Schools":
+ * the trigger lives in the row, the panel renders above the table.
+ */
+export function EditPersonButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label="Edit"
+      onClick={onClick}
+      className="flex size-9 items-center justify-center rounded-full text-ink-300 transition-colors hover:bg-canvas-100 hover:text-ink-600"
+    >
+      <Pencil className="size-4" strokeWidth={2.1} />
+    </button>
+  )
+}
+
+/**
+ * Rename/re-email panel, for parents, counselors and admins alike.
+ *
+ * A typo in either field used to mean delete-and-recreate — which for a
+ * parent or counselor loses their password, their invitation history, and
+ * (for a parent) re-links every child by hand.
+ */
+export function EditPersonForm({
+  endpoint,
+  name,
+  email,
+  what,
+  invalidate,
+  onClose,
+}: {
+  endpoint: string
+  name: string
+  email: string
+  /** Named in the heading, so it's clear who this edits. */
+  what: string
+  invalidate: string[]
+  onClose: () => void
+}) {
+  const qc = useQueryClient()
+  const [newName, setNewName] = useState(name)
+  const [newEmail, setNewEmail] = useState(email)
+  const [error, setError] = useState('')
+
+  const save = useMutation({
+    mutationFn: () =>
+      api(endpoint, {
+        method: 'PATCH',
+        body: { name: newName.trim(), email: newEmail.trim() },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: invalidate })
+      onClose()
+    },
+    onError: (e) =>
+      setError(e instanceof ApiError ? e.message : 'Could not save that.'),
+  })
+
+  return (
+    <Card className="mb-4 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <p className="font-extrabold text-ink-800">Edit {what}</p>
+        <button
+          type="button"
+          aria-label="Cancel"
+          onClick={onClose}
+          className="flex size-8 items-center justify-center rounded-full text-ink-400 hover:bg-canvas-100"
+        >
+          <X className="size-4" strokeWidth={2.4} />
+        </button>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field
+          label="Full name"
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+        />
+        <Field
+          label="Email"
+          type="email"
+          inputMode="email"
+          value={newEmail}
+          onChange={(e) => setNewEmail(e.target.value)}
+        />
+      </div>
+
+      {error && (
+        <p role="alert" className="mt-3 text-sm font-medium text-berry-600">
+          {error}
+        </p>
+      )}
+
+      <div className="mt-4 flex gap-2">
+        <Button
+          disabled={!newName.trim() || !newEmail.trim()}
+          loading={save.isPending}
+          onClick={() => save.mutate()}
+        >
+          Save
+        </Button>
+        <Button variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+      </div>
+    </Card>
+  )
+}
+
 /* ── Delete a person ─────────────────────────────────────────────────── */
 
 export function DeletePerson({
@@ -501,38 +617,28 @@ export function DeletePerson({
   invalidate: string[]
 }) {
   const qc = useQueryClient()
-  const [confirming, setConfirming] = useState(false)
   const remove = useMutation({
     mutationFn: () => api(endpoint, { method: 'DELETE' }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: invalidate }),
+    onError: (e) =>
+      notifyError(
+        `Could not delete ${what}`,
+        e instanceof ApiError ? e.message : undefined,
+      ),
   })
 
-  if (!confirming) {
-    return (
-      <button
-        type="button"
-        aria-label={`Delete ${what}`}
-        onClick={() => setConfirming(true)}
-        className="flex size-9 items-center justify-center rounded-full text-ink-300 transition-colors hover:bg-berry-50 hover:text-berry-500"
-      >
-        <Trash2 className="size-4" strokeWidth={2.1} />
-      </button>
-    )
-  }
   return (
-    <span className="inline-flex items-center gap-1.5">
-      <Button
-        size="sm"
-        variant="danger"
-        loading={remove.isPending}
-        onClick={() => remove.mutate()}
-      >
-        Delete {what}
-      </Button>
-      <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
-        Cancel
-      </Button>
-    </span>
+    <button
+      type="button"
+      aria-label={`Delete ${what}`}
+      disabled={remove.isPending}
+      onClick={async () => {
+        if (await confirmDelete(what)) remove.mutate()
+      }}
+      className="flex size-9 items-center justify-center rounded-full text-ink-300 transition-colors hover:bg-berry-50 hover:text-berry-500 disabled:opacity-40"
+    >
+      <Trash2 className="size-4" strokeWidth={2.1} />
+    </button>
   )
 }
 

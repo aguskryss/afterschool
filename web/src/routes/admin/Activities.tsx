@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Target, Trash2, Upload } from 'lucide-react'
 import { ApiError, api } from '@/lib/api'
+import { confirmDelete } from '@/lib/confirm'
 import { DataTable, type Column } from '@/components/DataTable'
 import { Button, Card, Field, Pill } from '@/components/ui'
 
@@ -541,7 +542,14 @@ export function AdminActivitySchedules() {
           size="sm"
           variant="ghost"
           aria-label={`Remove the ${s.day_of_week} schedule for ${s.activity_name_pattern}`}
-          onClick={() => remove.mutate(s.id)}
+          onClick={async () => {
+            if (
+              await confirmDelete(
+                `the ${s.day_of_week} schedule for ${s.activity_name_pattern}`,
+              )
+            )
+              remove.mutate(s.id)
+          }}
         >
           <Trash2 className="size-4" strokeWidth={2.1} />
         </Button>
