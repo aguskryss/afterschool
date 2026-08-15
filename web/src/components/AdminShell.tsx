@@ -77,6 +77,9 @@ const GROUPS: { title: string; items: Item[] }[] = [
     title: 'Program',
     items: [
       { to: '/schools', label: 'Schools', icon: School },
+      // The menu a child's grade is picked from, not module-gated for the
+      // same reason Schools above isn't: every organization needs one.
+      { to: '/grades', label: 'Grades', icon: GraduationCap },
       // Next to Schools because both are places, and because a JCC sets them up
       // once in the same sitting. Safe to gate the whole item: Schools above has
       // no module, so this group never renders an empty heading.

@@ -346,6 +346,7 @@ TENANT_TABLES = (
     'notification_settings',
     'users',
     'schools',
+    'grades',
     'counselor_schools',
     'counselor_school_changes',
     'children',
@@ -416,6 +417,7 @@ GLOBAL_TABLES = ('app_settings', 'login_attempts')
 # must both be allowed a school called "Beth Am".
 PER_ORG_UNIQUES = (
     ('schools', 'schools_name_key', ('name',)),
+    ('grades', 'grades_name_key', ('name',)),
     ('activities', 'activities_name_key', ('name',)),
     (
         'activity_schedules',

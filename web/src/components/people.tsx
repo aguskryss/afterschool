@@ -367,6 +367,13 @@ export function ChildExtraFields({
   value: ChildExtra
   onChange: (patch: Partial<ChildExtra>) => void
 }) {
+  // Same query key as the Grades screen, so this and that screen never show
+  // out-of-sync lists for more than a refetch.
+  const { data: grades } = useQuery({
+    queryKey: ['admin', 'grades'],
+    queryFn: () => api<{ id: number; name: string }[]>('/api/admin/grades'),
+  })
+
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <Field
@@ -374,13 +381,33 @@ export function ChildExtraFields({
         value={value.service_type}
         onChange={(e) => onChange({ service_type: e.target.value })}
       />
-      <Field
-        label="Grade"
-        placeholder="K, 1, 2…"
-        hint="The roster's own spelling — 'K' and '0' both mean kindergarten."
-        value={value.grade_label}
-        onChange={(e) => onChange({ grade_label: e.target.value })}
-      />
+      <label className="flex flex-col gap-1 text-[0.8rem] font-bold text-ink-600">
+        Grade
+        {grades && grades.length === 0 ? (
+          <span className="text-[0.85rem] font-semibold text-sun-600">
+            No grades set up yet — add some under Grades.
+          </span>
+        ) : (
+          <select
+            value={value.grade_label}
+            onChange={(e) => onChange({ grade_label: e.target.value })}
+            className="h-10 rounded-2xl border-2 border-canvas-200 bg-white px-3 text-[0.95rem] font-semibold text-ink-900 outline-none focus:border-sky-500"
+          >
+            <option value="">—</option>
+            {(grades ?? []).map((g) => (
+              <option key={g.id} value={g.name}>
+                {g.name}
+              </option>
+            ))}
+            {/* A child already carrying a grade that was since removed from
+                the list still shows it, rather than silently blanking it. */}
+            {value.grade_label &&
+              !(grades ?? []).some((g) => g.name === value.grade_label) && (
+                <option value={value.grade_label}>{value.grade_label}</option>
+              )}
+          </select>
+        )}
+      </label>
       <Field
         label="Date of birth"
         type="date"

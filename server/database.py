@@ -236,6 +236,18 @@ def init_db():
         )
     """)
 
+    # The menu a child's grade is picked from (sql/49_add_grades.sql). Not
+    # where a child's own grade is stored — that stays grade_label/grade_num
+    # on children, filled in by parse_grade() either way. This is only the
+    # list an admin manages so the picker isn't free text.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS grades (
+            id SERIAL PRIMARY KEY,
+            name TEXT UNIQUE NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS counselor_schools (
             counselor_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

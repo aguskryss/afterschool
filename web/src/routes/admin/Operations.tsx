@@ -642,3 +642,173 @@ export function AdminSchools() {
     </div>
   )
 }
+
+/* ── Grades ──────────────────────────────────────────────────────────── */
+
+type GradeRow = { id: number; name: string; sort_order: number }
+
+/** Shared by add and edit — the whole form is one field. */
+function GradeNameForm({
+  title,
+  initial,
+  onSave,
+  onCancel,
+  saving,
+  error,
+}: {
+  title: string
+  initial: string
+  onSave: (name: string) => void
+  onCancel: () => void
+  saving: boolean
+  error: string
+}) {
+  const [name, setName] = useState(initial)
+  return (
+    <Card className="mb-4 p-4">
+      <p className="mb-3 font-extrabold text-ink-800">{title}</p>
+      <Field
+        label="Grade name"
+        placeholder="K, 1, 2…"
+        hint="The roster's own spelling — 'K' and '0' both mean kindergarten."
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        className="mb-3"
+      />
+      {error && (
+        <p role="alert" className="mb-3 text-sm font-medium text-berry-600">
+          {error}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <Button disabled={!name.trim()} loading={saving} onClick={() => onSave(name)}>
+          Save
+        </Button>
+        <Button variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </Card>
+  )
+}
+
+export function AdminGrades() {
+  const qc = useQueryClient()
+  const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<GradeRow | null>(null)
+  const [error, setError] = useState('')
+  const { data, isPending } = useQuery({
+    queryKey: ['admin', 'grades'],
+    queryFn: () => api<GradeRow[]>('/api/admin/grades'),
+  })
+
+  const invalidate = () => void qc.invalidateQueries({ queryKey: ['admin', 'grades'] })
+
+  const create = useMutation({
+    mutationFn: (name: string) =>
+      api('/api/admin/grades', { method: 'POST', body: { name } }),
+    onSuccess: () => {
+      setAdding(false)
+      setError('')
+      invalidate()
+    },
+    onError: (e) => setError(e instanceof ApiError ? e.message : 'Could not add that.'),
+  })
+
+  const update = useMutation({
+    mutationFn: (name: string) =>
+      api(`/api/admin/grades/${editing!.id}`, { method: 'PUT', body: { name } }),
+    onSuccess: () => {
+      setEditing(null)
+      setError('')
+      invalidate()
+    },
+    onError: (e) => setError(e instanceof ApiError ? e.message : 'Could not save that.'),
+  })
+
+  const columns: Column<GradeRow>[] = [
+    { key: 'name', header: 'Grade' },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      value: () => '',
+      render: (g) => (
+        <span className="flex items-center justify-end gap-2">
+          <EditPersonButton
+            onClick={() => {
+              setError('')
+              setEditing(g)
+            }}
+          />
+          <DeletePerson
+            endpoint={`/api/admin/grades/${g.id}`}
+            what={g.name}
+            invalidate={['admin', 'grades']}
+          />
+        </span>
+      ),
+    },
+  ]
+
+  return (
+    <div className="mx-auto w-full max-w-[1800px]">
+      <h1 className="mb-1 text-[1.75rem] font-extrabold tracking-tight text-ink-900">
+        Grades
+      </h1>
+      <p className="mb-6 max-w-2xl text-[0.95rem] font-medium text-ink-500">
+        The list a child's grade is picked from when adding or editing one.
+        Removing a grade here doesn't change any child who already has it —
+        it only stops offering that option going forward.
+      </p>
+
+      {adding && (
+        <GradeNameForm
+          title="Add a grade"
+          initial=""
+          saving={create.isPending}
+          error={error}
+          onSave={(name) => create.mutate(name)}
+          onCancel={() => {
+            setAdding(false)
+            setError('')
+          }}
+        />
+      )}
+      {editing && (
+        <GradeNameForm
+          title="Edit grade"
+          initial={editing.name}
+          saving={update.isPending}
+          error={error}
+          onSave={(name) => update.mutate(name)}
+          onCancel={() => {
+            setEditing(null)
+            setError('')
+          }}
+        />
+      )}
+
+      <DataTable
+        rows={data}
+        columns={columns}
+        loading={isPending}
+        searchPlaceholder="Search grades…"
+        emptyIcon={<GraduationCap className="size-7" strokeWidth={1.8} />}
+        emptyTitle="No grades yet"
+        emptyBody="Add K, 1st, 2nd… so the child form offers a picker instead of free text."
+        actions={
+          <AddButton
+            open={adding}
+            onToggle={() => {
+              setAdding((v) => !v)
+              setError('')
+            }}
+          >
+            {adding ? 'Cancel' : 'Add grade'}
+          </AddButton>
+        }
+      />
+    </div>
+  )
+}

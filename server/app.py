@@ -2397,6 +2397,99 @@ def admin_delete_school(school_id):
         db.close()
     return jsonify({'message': 'School deleted'})
 
+
+# ─── GRADES ─────────────────────────────────────────────────────────────────
+# The menu a child's grade is picked from (sql/49_add_grades.sql), not where
+# it is stored — that stays children.grade_label/grade_num, filled in by
+# parse_grade() either way. Deleting a grade here never touches an existing
+# child's row; it only stops offering that option going forward.
+
+def _grade_sort_order(db, name):
+    """K first, then 1 through 12 in order; anything unrecognized goes last.
+
+    Mirrors what a human would expect without asking them to also pick a
+    number — parse_grade() already knows K and 0 are the same rank, so a
+    label that already means something sorts itself.
+    """
+    (_label, grade_num), _code = parse_grade(name)
+    if grade_num is not None:
+        return grade_num
+    row = db.execute("SELECT COALESCE(MAX(sort_order), -1) AS n FROM grades").fetchone()
+    return row['n'] + 1
+
+
+@app.route('/api/admin/grades', methods=['GET'])
+@jwt_required()
+def admin_get_grades():
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    db = get_db()
+    grades = db.execute("SELECT * FROM grades ORDER BY sort_order, name").fetchall()
+    db.close()
+    return jsonify([dict(g) for g in grades])
+
+@app.route('/api/admin/grades', methods=['POST'])
+@jwt_required()
+def admin_add_grade():
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    name = (request.json or {}).get('name', '').strip()
+    if not name:
+        return jsonify({'error': 'Grade name required'}), 400
+    db = get_db()
+    try:
+        sort_order = _grade_sort_order(db, name)
+        db.execute(
+            "INSERT INTO grades (name, sort_order) VALUES (%s, %s)",
+            (name, sort_order),
+        )
+        db.commit()
+    except psycopg2.IntegrityError:
+        db.close()
+        return jsonify({'error': 'Grade already exists'}), 409
+    db.close()
+    return jsonify({'message': 'Grade added'})
+
+@app.route('/api/admin/grades/<int:grade_id>', methods=['PUT'])
+@jwt_required()
+def admin_update_grade(grade_id):
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    name = (request.json or {}).get('name', '').strip()
+    if not name:
+        return jsonify({'error': 'Grade name required'}), 400
+    db = get_db()
+    try:
+        sort_order = _grade_sort_order(db, name)
+        cur = db.execute(
+            "UPDATE grades SET name = %s, sort_order = %s WHERE id = %s RETURNING id",
+            (name, sort_order, grade_id),
+        )
+        if cur.rowcount == 0:
+            db.close()
+            return jsonify({'error': 'Grade not found'}), 404
+        db.commit()
+    except psycopg2.IntegrityError:
+        db.close()
+        return jsonify({'error': 'A grade with that name already exists'}), 409
+    db.close()
+    return jsonify({'message': 'Grade updated'})
+
+@app.route('/api/admin/grades/<int:grade_id>', methods=['DELETE'])
+@jwt_required()
+def admin_delete_grade(grade_id):
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    db = get_db()
+    cur = db.execute("DELETE FROM grades WHERE id = %s", (grade_id,))
+    if cur.rowcount == 0:
+        db.close()
+        return jsonify({'error': 'Grade not found'}), 404
+    db.commit()
+    db.close()
+    return jsonify({'message': 'Grade deleted'})
+
+
 @app.route('/api/admin/counselors', methods=['GET'])
 @jwt_required()
 def admin_get_counselors():

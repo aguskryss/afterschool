@@ -35,6 +35,7 @@ import { AdminChildProfile, AdminChildren } from '@/routes/admin/Children'
 import {
   AdminAbsences,
   AdminAttendance,
+  AdminGrades,
   AdminSchools,
   AdminTimeOff,
 } from '@/routes/admin/Operations'
@@ -105,6 +106,7 @@ const ADMIN_ROUTES: [string, ReactNode][] = [
   ['/counselors', <AdminCounselors />],
   ['/admins', <AdminAdmins />],
   ['/schools', <AdminSchools />],
+  ['/grades', <AdminGrades />],
   // Screens whose endpoints belong to a module are wrapped: hiding the nav
   // item leaves the route reachable by URL, and every request behind it 403s.
   ['/calendar-admin', <ModuleGuard module="calendar"><AdminCalendar /></ModuleGuard>],

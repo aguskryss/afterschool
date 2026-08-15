@@ -65,6 +65,9 @@ CORE_PREFIXES = (
     '/api/counselor/notification-responses',
     '/api/admin/stats',
     '/api/admin/schools',
+    # The menu a child's grade is picked from — same footing as schools, one
+    # JCC-wide list every admin screen reads.
+    '/api/admin/grades',
     '/api/admin/counselors',
     # Who covers which school, and the log of who changed it. Core for the
     # same reason the roster is: a JCC cannot run an afternoon without it.
