@@ -1145,14 +1145,24 @@ def public_branding():
     db = get_db()
     try:
         row = db.execute(
-            'SELECT name, logo_url, brand_primary, brand_accent '
+            'SELECT name, logo_path, logo_url, brand_primary, brand_accent '
             'FROM organizations ORDER BY id LIMIT 1'
         ).fetchone()
     finally:
         db.close()
     if not row:
         return jsonify({'name': None, 'logo_url': None, 'brand_primary': None, 'brand_accent': None})
-    return jsonify(dict(row))
+    # Same resolution as everywhere else that shows a logo: an uploaded file
+    # wins over a pasted link. Getting this wrong here specifically would
+    # mean the sign-in screen shows a stale URL nobody can see (see
+    # tenancy.org_logo_url's docstring) while every signed-in screen shows
+    # the right one — a mismatch that looks like the upload failed.
+    return jsonify({
+        'name': row['name'],
+        'logo_url': tenancy.org_logo_url(row),
+        'brand_primary': row['brand_primary'],
+        'brand_accent': row['brand_accent'],
+    })
 
 
 @app.route('/api/auth/login', methods=['POST'])
