@@ -490,6 +490,170 @@ export function AddChild({
   )
 }
 
+/* ── Add a child from the roster screen, not a parent's row ─────────────── */
+
+/**
+ * Same endpoint as AddChild, but for the Children screen: it starts from a
+ * child, not a parent, so the parent is a pick rather than already known.
+ * Kept separate from AddChild rather than made to handle both cases — the
+ * parent-picker only matters here, and AddChild's contract (you already
+ * know who this is for) stays simple for the one place that has that.
+ */
+export function AddChildForm({
+  parents,
+  schools,
+  onDone,
+}: {
+  parents: { id: number; name: string; email: string }[]
+  schools: { id: number; name: string }[]
+  onDone: () => void
+}) {
+  const qc = useQueryClient()
+  const [parentId, setParentId] = useState<number | ''>('')
+  const [name, setName] = useState('')
+  const [schoolId, setSchoolId] = useState<number | ''>('')
+  const [days, setDays] = useState<string[]>([...WEEKDAYS])
+  const [error, setError] = useState('')
+
+  const create = useMutation({
+    mutationFn: () =>
+      api('/api/admin/children', {
+        method: 'POST',
+        body: {
+          name: name.trim(),
+          parent_id: parentId,
+          school_id: schoolId,
+          days,
+        },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'parents'] })
+      void qc.invalidateQueries({ queryKey: ['admin', 'children'] })
+      onDone()
+    },
+    onError: (e) =>
+      setError(e instanceof ApiError ? e.message : 'Could not add that child.'),
+  })
+
+  return (
+    <Card className="mb-4 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <p className="font-extrabold text-ink-800">Add a child</p>
+        <button
+          type="button"
+          aria-label="Cancel"
+          onClick={onDone}
+          className="flex size-8 items-center justify-center rounded-full text-ink-400 hover:bg-canvas-100"
+        >
+          <X className="size-4" strokeWidth={2.4} />
+        </button>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="flex flex-col gap-1 text-[0.8rem] font-bold text-ink-600">
+          Parent
+          {parents.length === 0 ? (
+            <p className="text-[0.85rem] font-semibold text-sun-600">
+              No parents yet — add one first.
+            </p>
+          ) : (
+            <select
+              value={parentId}
+              onChange={(e) => setParentId(Number(e.target.value) || '')}
+              className="h-10 rounded-2xl border-2 border-canvas-200 bg-white px-3 text-[0.95rem] font-semibold text-ink-900 outline-none focus:border-sky-500"
+            >
+              <option value="">Pick a parent…</option>
+              {parents.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} — {p.email}
+                </option>
+              ))}
+            </select>
+          )}
+        </label>
+        <Field
+          label="Child's full name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </div>
+
+      <label className="mt-3 mb-1.5 block text-sm font-bold text-ink-700">
+        School
+      </label>
+      {schools.length === 0 ? (
+        <p className="mb-3 text-[0.85rem] font-semibold text-sun-600">
+          There are no schools yet — add one under Schools first.
+        </p>
+      ) : (
+        <select
+          value={schoolId}
+          onChange={(e) => setSchoolId(Number(e.target.value) || '')}
+          aria-label="School"
+          className="mb-3 w-full rounded-2xl border-2 border-canvas-200 px-3 py-2 text-[0.9rem] font-semibold text-ink-900 outline-none focus:border-sky-500"
+        >
+          <option value="">Pick a school…</option>
+          {schools.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      )}
+
+      <p className="mb-1.5 text-sm font-bold text-ink-700">Days they attend</p>
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        {WEEKDAYS.map((d) => {
+          const on = days.includes(d)
+          return (
+            <button
+              key={d}
+              type="button"
+              aria-pressed={on}
+              onClick={() =>
+                setDays((prev) =>
+                  on ? prev.filter((x) => x !== d) : [...prev, d],
+                )
+              }
+              className={`rounded-full border-2 px-3 py-1.5 text-[0.82rem] font-bold transition ${
+                on
+                  ? 'border-sky-500 bg-sky-50 text-sky-700'
+                  : 'border-canvas-200 bg-white text-ink-500'
+              }`}
+            >
+              {d.slice(0, 3)}
+            </button>
+          )
+        })}
+      </div>
+      {days.length === 0 && (
+        <p className="mb-3 text-[0.82rem] font-semibold text-sun-600">
+          With no days they will not appear on any day's roster.
+        </p>
+      )}
+
+      {error && (
+        <p role="alert" className="mb-3 text-sm font-medium text-berry-600">
+          {error}
+        </p>
+      )}
+
+      <div className="flex gap-2">
+        <Button
+          disabled={!name.trim() || !schoolId || !parentId}
+          loading={create.isPending}
+          onClick={() => create.mutate()}
+        >
+          Add child
+        </Button>
+        <Button variant="ghost" onClick={onDone}>
+          Cancel
+        </Button>
+      </div>
+    </Card>
+  )
+}
+
 /* ── Edit a person's name or email ───────────────────────────────────── */
 
 /**

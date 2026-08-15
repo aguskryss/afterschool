@@ -5,6 +5,7 @@ import { ArrowLeft, Baby, Mail, Pencil, Phone, Trash2 } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
 import { confirmDelete, notifyError } from '@/lib/confirm'
 import { DataTable, type Column } from '@/components/DataTable'
+import { AddButton, AddChildForm } from '@/components/people'
 import { Avatar, Button, Card, EmptyState, Field, Pill, Skeleton } from '@/components/ui'
 import {
   STATUS_LABEL,
@@ -165,10 +166,16 @@ export function AdminChildren() {
   const [school, setSchool] = useState('')
   const [day, setDay] = useState('')
   const [active, setActive] = useState('1')
+  const [adding, setAdding] = useState(false)
 
   const { data: schools } = useQuery({
     queryKey: ['admin', 'schools'],
     queryFn: () => api<School[]>('/api/admin/schools'),
+  })
+
+  const { data: parents } = useQuery({
+    queryKey: ['admin', 'parents'],
+    queryFn: () => api<{ id: number; name: string; email: string }[]>('/api/admin/parents'),
   })
 
   const { data, isPending } = useQuery({
@@ -265,6 +272,14 @@ export function AdminChildren() {
           : `${rows?.length ?? 0} shown · ${enrolled} enrolled on at least one day`}
       </p>
 
+      {adding && (
+        <AddChildForm
+          parents={parents ?? []}
+          schools={schools ?? []}
+          onDone={() => setAdding(false)}
+        />
+      )}
+
       <DataTable
         rows={rows}
         columns={columns}
@@ -273,7 +288,7 @@ export function AdminChildren() {
         searchPlaceholder="Search children, schools or guardians…"
         emptyIcon={<Baby className="size-7" strokeWidth={1.8} />}
         emptyTitle="No children yet"
-        emptyBody="Import the program from Import roster, or add a child to a parent."
+        emptyBody="Import the program from Import roster, or add one below."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <select
@@ -312,6 +327,9 @@ export function AdminChildren() {
               <option value="0">Inactive</option>
               <option value="all">Active and inactive</option>
             </select>
+            <AddButton open={adding} onToggle={() => setAdding((v) => !v)}>
+              {adding ? 'Cancel' : 'Add child'}
+            </AddButton>
           </div>
         }
       />
