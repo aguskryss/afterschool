@@ -337,6 +337,94 @@ export function SetupLink({ endpoint }: { endpoint: string }) {
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] as const
 
 /**
+ * The columns the roster importer fills in from a spreadsheet that manual
+ * entry had no form for at all — only name, school and days. One shape and
+ * one set of inputs shared by creating a child and editing one, so the two
+ * paths can't drift into asking for different things.
+ */
+export type ChildExtra = {
+  service_type: string
+  grade_label: string
+  dob: string
+  sex: string
+  bus_rider: boolean
+  arrival_mode: string
+}
+
+export const CHILD_EXTRA_DEFAULTS: ChildExtra = {
+  service_type: 'Full Service',
+  grade_label: '',
+  dob: '',
+  sex: '',
+  bus_rider: false,
+  arrival_mode: '',
+}
+
+export function ChildExtraFields({
+  value,
+  onChange,
+}: {
+  value: ChildExtra
+  onChange: (patch: Partial<ChildExtra>) => void
+}) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <Field
+        label="Service type"
+        value={value.service_type}
+        onChange={(e) => onChange({ service_type: e.target.value })}
+      />
+      <Field
+        label="Grade"
+        placeholder="K, 1, 2…"
+        hint="The roster's own spelling — 'K' and '0' both mean kindergarten."
+        value={value.grade_label}
+        onChange={(e) => onChange({ grade_label: e.target.value })}
+      />
+      <Field
+        label="Date of birth"
+        type="date"
+        value={value.dob}
+        onChange={(e) => onChange({ dob: e.target.value })}
+      />
+      <label className="flex flex-col gap-1 text-[0.8rem] font-bold text-ink-600">
+        Sex
+        <select
+          value={value.sex}
+          onChange={(e) => onChange({ sex: e.target.value })}
+          className="h-10 rounded-2xl border-2 border-canvas-200 bg-white px-3 text-[0.95rem] font-semibold text-ink-900 outline-none focus:border-sky-500"
+        >
+          <option value="">—</option>
+          <option value="F">F</option>
+          <option value="M">M</option>
+        </select>
+      </label>
+      <label className="flex flex-col gap-1 text-[0.8rem] font-bold text-ink-600">
+        Arrival
+        <select
+          value={value.arrival_mode}
+          onChange={(e) => onChange({ arrival_mode: e.target.value })}
+          className="h-10 rounded-2xl border-2 border-canvas-200 bg-white px-3 text-[0.95rem] font-semibold text-ink-900 outline-none focus:border-sky-500"
+        >
+          <option value="">—</option>
+          <option value="bus">Bus</option>
+          <option value="dropoff">Drop-off</option>
+        </select>
+      </label>
+      <label className="mt-6 flex items-center gap-2 text-[0.88rem] font-semibold text-ink-700">
+        <input
+          type="checkbox"
+          checked={value.bus_rider}
+          onChange={(e) => onChange({ bus_rider: e.target.checked })}
+          className="size-4 accent-sky-500"
+        />
+        Rides the bus
+      </label>
+    </div>
+  )
+}
+
+/**
  * Enrol a child under an existing parent.
  *
  * The endpoint has always been there; nothing in the app called it, so a parent
@@ -363,6 +451,7 @@ export function AddChild({
   const [name, setName] = useState('')
   const [schoolId, setSchoolId] = useState<number | ''>('')
   const [days, setDays] = useState<string[]>([...WEEKDAYS])
+  const [extra, setExtra] = useState<ChildExtra>(CHILD_EXTRA_DEFAULTS)
   const [error, setError] = useState('')
 
   const create = useMutation({
@@ -374,12 +463,14 @@ export function AddChild({
           parent_id: parentId,
           school_id: schoolId,
           days,
+          ...extra,
         },
       }),
     onSuccess: () => {
       setOpen(false)
       setName('')
       setDays([...WEEKDAYS])
+      setExtra(CHILD_EXTRA_DEFAULTS)
       setError('')
       // The parents table renders each family's children inline, and Children
       // is the same roster from the other side.
@@ -400,7 +491,7 @@ export function AddChild({
   }
 
   return (
-    <Card className="w-full max-w-md p-4 text-left">
+    <Card className="w-full max-w-lg p-4 text-left">
       <p className="mb-3 font-extrabold text-ink-800">
         Add a child for {parentName}
       </p>
@@ -468,6 +559,13 @@ export function AddChild({
         </p>
       )}
 
+      <div className="mb-3 border-t border-canvas-200 pt-3">
+        <ChildExtraFields
+          value={extra}
+          onChange={(patch) => setExtra((v) => ({ ...v, ...patch }))}
+        />
+      </div>
+
       {error && (
         <p role="alert" className="mb-3 text-sm font-medium text-berry-600">
           {error}
@@ -513,6 +611,7 @@ export function AddChildForm({
   const [name, setName] = useState('')
   const [schoolId, setSchoolId] = useState<number | ''>('')
   const [days, setDays] = useState<string[]>([...WEEKDAYS])
+  const [extra, setExtra] = useState<ChildExtra>(CHILD_EXTRA_DEFAULTS)
   const [error, setError] = useState('')
 
   const create = useMutation({
@@ -524,6 +623,7 @@ export function AddChildForm({
           parent_id: parentId,
           school_id: schoolId,
           days,
+          ...extra,
         },
       }),
     onSuccess: () => {
@@ -631,6 +731,13 @@ export function AddChildForm({
           With no days they will not appear on any day's roster.
         </p>
       )}
+
+      <div className="mb-3 border-t border-canvas-200 pt-3">
+        <ChildExtraFields
+          value={extra}
+          onChange={(patch) => setExtra((v) => ({ ...v, ...patch }))}
+        />
+      </div>
 
       {error && (
         <p role="alert" className="mb-3 text-sm font-medium text-berry-600">

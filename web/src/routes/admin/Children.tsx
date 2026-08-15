@@ -5,7 +5,12 @@ import { ArrowLeft, Baby, Mail, Pencil, Phone, Trash2 } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
 import { confirmDelete, notifyError } from '@/lib/confirm'
 import { DataTable, type Column } from '@/components/DataTable'
-import { AddButton, AddChildForm } from '@/components/people'
+import {
+  AddButton,
+  AddChildForm,
+  ChildExtraFields,
+  type ChildExtra,
+} from '@/components/people'
 import { Avatar, Button, Card, EmptyState, Field, Pill, Skeleton } from '@/components/ui'
 import {
   STATUS_LABEL,
@@ -415,10 +420,18 @@ function EditChildForm({
   const qc = useQueryClient()
   const [name, setName] = useState(child.name)
   const [schoolId, setSchoolId] = useState(child.school_id)
-  const [serviceType, setServiceType] = useState(child.service_type)
+  const [extra, setExtra] = useState<ChildExtra>({
+    service_type: child.service_type,
+    grade_label: child.grade_label ?? '',
+    dob: child.dob ? child.dob.slice(0, 10) : '',
+    sex: child.sex ?? '',
+    bus_rider: child.bus_rider ?? false,
+    arrival_mode: child.arrival_mode ?? '',
+  })
   const [allergies, setAllergies] = useState(child.allergies ?? '')
   const [notes, setNotes] = useState(child.notes ?? '')
   const [active, setActive] = useState(child.active)
+  const [withdrawnReason, setWithdrawnReason] = useState(child.withdrawn_reason ?? '')
   const [error, setError] = useState('')
 
   const save = useMutation({
@@ -428,10 +441,11 @@ function EditChildForm({
         body: {
           name: name.trim(),
           school_id: schoolId,
-          service_type: serviceType.trim(),
+          ...extra,
           allergies,
           notes,
           active,
+          withdrawn_reason: withdrawnReason,
         },
       }),
     onSuccess: () => {
@@ -467,15 +481,11 @@ function EditChildForm({
           </select>
         </label>
         <Field
-          label="Service type"
-          value={serviceType}
-          onChange={(e) => setServiceType(e.target.value)}
-        />
-        <Field
           label="Allergies"
           value={allergies}
           onChange={(e) => setAllergies(e.target.value)}
           hint="Shown to counselors on every roster."
+          className="sm:col-span-2"
         />
       </div>
 
@@ -489,6 +499,13 @@ function EditChildForm({
         />
       </label>
 
+      <div className="mt-3 border-t border-canvas-200 pt-3">
+        <ChildExtraFields
+          value={extra}
+          onChange={(patch) => setExtra((v) => ({ ...v, ...patch }))}
+        />
+      </div>
+
       <label className="mt-3 flex items-center gap-2 text-[0.88rem] font-semibold text-ink-700">
         <input
           type="checkbox"
@@ -499,10 +516,18 @@ function EditChildForm({
         Active in the program
       </label>
       {!active && (
-        <p className="mt-1 text-[0.82rem] font-semibold text-sun-600">
-          An inactive child drops off every roster and headcount, but their
-          history stays intact — unlike Delete.
-        </p>
+        <>
+          <p className="mt-1 mb-2 text-[0.82rem] font-semibold text-sun-600">
+            An inactive child drops off every roster and headcount, but their
+            history stays intact — unlike Delete.
+          </p>
+          <Field
+            label="Reason (optional)"
+            value={withdrawnReason}
+            onChange={(e) => setWithdrawnReason(e.target.value)}
+            placeholder="Moved, switched programs…"
+          />
+        </>
       )}
 
       {error && (

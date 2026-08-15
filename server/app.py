@@ -47,6 +47,7 @@ try:
     from server import roster_staging
     from server import scheduler
     from server import daily_routing
+    from server.roster_import import parse_grade
 except ImportError:
     from database import get_db, get_db_transaction, init_db
     import tenancy
@@ -56,6 +57,7 @@ except ImportError:
     import roster_staging
     import scheduler
     import daily_routing
+    from roster_import import parse_grade
 
 try:
     from server import pickup_events
@@ -3204,13 +3206,44 @@ def admin_add_child():
     if not name or not parent_id or not school_id:
         return jsonify({'error': 'Missing required fields'}), 400
 
+    # Same fields the roster importer fills in from a spreadsheet, for a child
+    # entered by hand instead. grade_num is derived from grade_label the same
+    # way the importer derives it, rather than trusted from the client, so a
+    # care rule keyed on grade_num works the same regardless of which path
+    # created the row.
+    grade_label = (data.get('grade_label') or '').strip() or None
+    grade_num = None
+    if grade_label:
+        (grade_label, grade_num), _code = parse_grade(grade_label)
+    dob = data.get('dob') or None
+    sex = data.get('sex') or None
+    if sex not in (None, 'M', 'F'):
+        return jsonify({'error': "sex must be 'M' or 'F'"}), 400
+    bus_rider = data.get('bus_rider')
+    arrival_mode = data.get('arrival_mode') or None
+    if arrival_mode not in (None, 'bus', 'dropoff'):
+        return jsonify({'error': "arrival_mode must be 'bus' or 'dropoff'"}), 400
+    allergies = (data.get('allergies') or '').strip() or None
+    notes = (data.get('notes') or '').strip() or None
+
     db = get_db()
-    cur = db.execute("INSERT INTO children (name, parent_id, school_id, service_type) VALUES (%s, %s, %s, %s) RETURNING id", (name, parent_id, school_id, service_type))
-    child_id = cur.fetchone()['id']
-    for day in days:
-        db.execute("INSERT INTO registrations (child_id, day_of_week) VALUES (%s, %s) ON CONFLICT DO NOTHING", (child_id, day))
-    db.commit()
-    db.close()
+    try:
+        cur = db.execute(
+            "INSERT INTO children (name, parent_id, school_id, service_type, "
+            "grade_label, grade_num, dob, sex, bus_rider, arrival_mode, "
+            "allergies, notes) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (name, parent_id, school_id, service_type, grade_label, grade_num,
+             dob, sex, bus_rider, arrival_mode, allergies, notes),
+        )
+        child_id = cur.fetchone()['id']
+        for day in days:
+            db.execute("INSERT INTO registrations (child_id, day_of_week) VALUES (%s, %s) ON CONFLICT DO NOTHING", (child_id, day))
+        db.commit()
+    except psycopg2.errors.ForeignKeyViolation:
+        return jsonify({'error': 'That parent or school does not exist'}), 400
+    finally:
+        db.close()
     return jsonify({'message': 'Child added', 'child_id': child_id})
 
 @app.route('/api/admin/children/<int:child_id>', methods=['PUT'])
@@ -3276,8 +3309,37 @@ def admin_update_child(child_id):
             updates['allergies'] = (data.get('allergies') or '').strip() or None
         if 'notes' in data:
             updates['notes'] = (data.get('notes') or '').strip() or None
+        if 'grade_label' in data:
+            grade_label = (data.get('grade_label') or '').strip() or None
+            grade_num = None
+            if grade_label:
+                (grade_label, grade_num), _code = parse_grade(grade_label)
+            updates['grade_label'] = grade_label
+            updates['grade_num'] = grade_num
+        if 'dob' in data:
+            updates['dob'] = data.get('dob') or None
+        if 'sex' in data:
+            sex = data.get('sex') or None
+            if sex not in (None, 'M', 'F'):
+                return jsonify({'error': "sex must be 'M' or 'F'"}), 400
+            updates['sex'] = sex
+        if 'bus_rider' in data:
+            updates['bus_rider'] = bool(data.get('bus_rider'))
+        if 'arrival_mode' in data:
+            arrival_mode = data.get('arrival_mode') or None
+            if arrival_mode not in (None, 'bus', 'dropoff'):
+                return jsonify({'error': "arrival_mode must be 'bus' or 'dropoff'"}), 400
+            updates['arrival_mode'] = arrival_mode
         if 'active' in data:
-            updates['active'] = 1 if data.get('active') else 0
+            active = bool(data.get('active'))
+            updates['active'] = 1 if active else 0
+            # withdrawn_at/_reason exist to say why a name disappeared from the
+            # roster — set them going inactive, clear them coming back so a
+            # reactivated child doesn't still read as withdrawn.
+            updates['withdrawn_at'] = None if active else datetime.utcnow()
+            updates['withdrawn_reason'] = (
+                None if active else (data.get('withdrawn_reason') or '').strip() or None
+            )
 
         if updates:
             sets = ', '.join(f"{k} = %s" for k in updates)
