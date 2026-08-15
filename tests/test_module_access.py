@@ -42,6 +42,10 @@ CORE_PREFIXES = (
     # — it decides which organizations are due. Guarded by CRON_SECRET instead,
     # and closed when that is unset.
     '/api/cron/run-due',
+    # Name, logo and colours for the sign-in screen. No token yet, so no
+    # organization to gate on — it is the one thing an anonymous visitor may
+    # read, and none of it is sensitive.
+    '/api/public/branding',
     '/api/auth/login',
     '/api/auth/context',
     '/api/auth/refresh',

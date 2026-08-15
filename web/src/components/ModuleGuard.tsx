@@ -67,7 +67,7 @@ export function ModuleGuard({
         <EmptyState
           icon={<Lock className="size-7" strokeWidth={1.8} />}
           title="Not part of your plan"
-          body="This feature isn't enabled for your organization. Talk to Kikar if you'd like it turned on."
+          body="This feature isn't enabled for your organization. Ask your program administrator if you'd like it turned on."
         />
       </Card>
     </div>

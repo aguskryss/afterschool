@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Admin – Kikar Afterschool</title>
+  <title>Admin – Afterschool</title>
   <link rel="icon" href="/assets/icon-32.png" sizes="32x32" />
   <link rel="icon" href="/assets/icon-192.png" sizes="192x192" />
   <link rel="manifest" href="/manifest.json" />
   <meta name="theme-color" content="#005F73" />
-  <meta name="description" content="Kikar Afterschool Admin Portal – Manage parents, counselors, schools, attendance, and program settings" />
+  <meta name="description" content="Afterschool Admin Portal – Manage parents, counselors, schools, attendance, and program settings" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Kikar Afterschool Admin" />
+  <meta name="apple-mobile-web-app-title" content="Afterschool Admin" />
   <link rel="apple-touch-icon" href="/assets/icon-192.png" />
   <link rel="stylesheet" href="/shared/early-pickups.css" />
   <!-- Chart.js self-hosted locally so the dashboard never depends on external CDNs
@@ -328,7 +328,7 @@
 <body>
 
 <div id="install-banner" style="display:none;" class="install-banner">
-  <span id="install-text">📲 Install Kikar Afterschool on your phone</span>
+  <span id="install-text">📲 Install Afterschool on your phone</span>
   <button id="install-btn" onclick="installApp()">Install</button>
   <button class="dismiss" onclick="dismissInstall()">&times;</button>
 </div>
@@ -392,7 +392,7 @@
              claim just like counselors; whoever taps first clears it for all. -->
         <div id="early-pickups-mount"></div>
         <div class="page-title">Dashboard</div>
-        <div class="page-sub">Overview of the Kikar Afterschool program</div>
+        <div class="page-sub">Overview of the afterschool program</div>
         <div class="stats-grid" id="stats-grid">
           <div class="stat-card"><div class="stat-num" id="stat-parents">–</div><div class="stat-label">Parents</div></div>
           <div class="stat-card"><div class="stat-num" id="stat-children">–</div><div class="stat-label">Children</div></div>
@@ -586,7 +586,7 @@
 
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;align-items:center;">
           <span style="font-size:0.82rem;color:#64748b;font-weight:600;margin-right:4px;">Legend:</span>
-          <span class="event-badge event-closed">🔴 Kikar Afterschool Closed</span>
+          <span class="event-badge event-closed">🔴 Closed</span>
           <span class="event-badge event-mini_camp">🟣 Mini Camp</span>
           <span class="event-badge event-early_dismissal">🟠 Early Dismissal (4pm)</span>
           <span class="event-badge event-special_event">🔵 Special Event / JCC</span>
@@ -1238,7 +1238,7 @@
         <div class="form-group" style="margin:0;">
           <label>Type</label>
           <select id="day-event-type">
-            <option value="closed">🔴 Kikar Afterschool Closed</option>
+            <option value="closed">🔴 Closed</option>
             <option value="mini_camp">🟣 Mini Camp</option>
             <option value="early_dismissal">🟠 Early Dismissal (4pm)</option>
             <option value="special_event" selected>🔵 Special Event / JCC</option>
@@ -1301,7 +1301,7 @@
     <div class="form-group">
       <label>Type</label>
       <select id="ae-type">
-        <option value="closed">🔴 Kikar Afterschool Closed (No Service)</option>
+        <option value="closed">🔴 Closed (No Service)</option>
         <option value="mini_camp">🟣 Mini Camp</option>
         <option value="early_dismissal">🟠 Early Dismissal (closes at 4pm)</option>
         <option value="special_event" selected>🔵 Special Event / JCC Event</option>
@@ -2911,7 +2911,7 @@ async function uploadCalendarFile(e) {
 
 function downloadCalendarTemplate() {
   const csv = `Date,Type,Title,Description
-2026-09-07,closed,Labor Day - No Service,Kikar Afterschool closed for Labor Day
+2026-09-07,closed,Labor Day - No Service,Program closed for Labor Day
 2026-09-14,mini_camp,Mini Camp Day,Extended activities until 6pm
 2026-10-31,early_dismissal,Halloween Early Dismissal,Buses leave at 4pm
 2026-11-25,special_event,Thanksgiving Program,JCC Family Event`;
@@ -3786,16 +3786,16 @@ function showInstallBanner(type) {
   const text = document.getElementById('install-text');
   const btn = document.getElementById('install-btn');
   if (type === 'native') {
-    text.innerHTML = '📲 Install Kikar Afterschool for quick access';
+    text.innerHTML = '📲 Install Afterschool for quick access';
     btn.style.display = '';
   } else if (type === 'ios-safari') {
-    text.innerHTML = '📲 Install Kikar Afterschool: tap the <b>Share</b> button (↑) below, then <b>"Add to Home Screen"</b>';
+    text.innerHTML = '📲 Install Afterschool: tap the <b>Share</b> button (↑) below, then <b>"Add to Home Screen"</b>';
     btn.style.display = 'none';
   } else if (type === 'ios-other') {
-    text.innerHTML = '📲 To install Kikar Afterschool, open this page in <b>Safari</b> and tap Share → "Add to Home Screen"';
+    text.innerHTML = '📲 To install Afterschool, open this page in <b>Safari</b> and tap Share → "Add to Home Screen"';
     btn.style.display = 'none';
   } else if (type === 'android-manual') {
-    text.innerHTML = '📲 Install Kikar Afterschool: tap the <b>⋮ menu</b> (top right) then <b>"Add to Home screen"</b>';
+    text.innerHTML = '📲 Install Afterschool: tap the <b>⋮ menu</b> (top right) then <b>"Add to Home screen"</b>';
     btn.style.display = 'none';
   }
   banner.style.display = 'flex';

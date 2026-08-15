@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Kikar Afterschool",
-  "short_name": "Kikar",
-  "description": "Kikar Afterschool attendance and pickup",
+  "name": "Afterschool",
+  "short_name": "Afterschool",
+  "description": "Afterschool program attendance and pickup",
   "start_url": "/app/",
   "scope": "/app/",
   "display": "standalone",

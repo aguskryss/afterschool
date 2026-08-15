@@ -43,7 +43,7 @@ self.addEventListener('fetch', e => {
 
 // Push notifications
 self.addEventListener('push', e => {
-  let data = { title: 'Kikar Afterschool', body: 'New notification', url: '/app/' };
+  let data = { title: 'Afterschool', body: 'New notification', url: '/app/' };
   try { data = e.data.json(); } catch {}
   // Stable tag per pickup/event when the server provides one so a new push for
   // the same pickup replaces the old notification instead of stacking. Falls

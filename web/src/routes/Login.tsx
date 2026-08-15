@@ -1,10 +1,17 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { login } from '@/lib/api'
+import { api, login } from '@/lib/api'
 import { homeFor, writeSession } from '@/lib/auth'
 import { applyBranding } from '@/lib/branding'
-import { Lockup } from '@/components/Brand'
+import { OrgLogo, Wordmark } from '@/components/Brand'
 import { Button, Field } from '@/components/ui'
+
+type PublicBranding = {
+  name: string | null
+  logo_url: string | null
+  brand_primary: string | null
+  brand_accent: string | null
+}
 
 /**
  * One door for everyone.
@@ -21,6 +28,20 @@ export function Login() {
   const [needs2fa, setNeeds2fa] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [branding, setBranding] = useState<PublicBranding | null>(null)
+
+  // The sign-in screen has no token yet, so it cannot know the organization
+  // the way every other screen does — it asks the one public endpoint that
+  // exists for exactly this. Silently falls back to the platform wordmark on
+  // any failure (network error, empty database), same as OrgLogo does.
+  useEffect(() => {
+    api<PublicBranding>('/api/public/branding', { anonymous: true })
+      .then((b) => {
+        setBranding(b)
+        if (b.name) document.title = b.name
+      })
+      .catch(() => {})
+  }, [])
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -54,7 +75,15 @@ export function Login() {
     <main className="flex min-h-dvh flex-col items-center justify-center bg-canvas-50 px-5 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center text-center">
-          <Lockup className="items-center" />
+          {branding?.logo_url ? (
+            <OrgLogo org={{ name: branding.name ?? '', logo_url: branding.logo_url }} />
+          ) : (
+            // No logo yet, but the name is enough on its own — better than
+            // the platform wordmark once there is a real organization to name.
+            <span className="font-brand text-2xl font-light tracking-[0.1em] text-ink-900">
+              {branding?.name ?? <Wordmark className="text-2xl" />}
+            </span>
+          )}
           <h1 className="mt-7 text-[1.6rem] font-extrabold leading-tight text-ink-900">
             Welcome back
           </h1>

@@ -1130,6 +1130,31 @@ def health():
     return jsonify({'status': 'ok'})
 
 
+@app.route('/api/public/branding', methods=['GET'])
+def public_branding():
+    """Name, logo and colours for the sign-in screen, before anyone has a token.
+
+    Single-organization deployment: there is exactly one row to show, and
+    showing it here is safe because none of these four columns is sensitive —
+    a JCC's name and logo are already on their own public website. Bypasses
+    RLS the same way superadmin routes do (g.is_superadmin = True) because an
+    anonymous visitor has no organization_id for the policy to match against.
+    """
+    from flask import g
+    g.is_superadmin = True
+    db = get_db()
+    try:
+        row = db.execute(
+            'SELECT name, logo_url, brand_primary, brand_accent '
+            'FROM organizations ORDER BY id LIMIT 1'
+        ).fetchone()
+    finally:
+        db.close()
+    if not row:
+        return jsonify({'name': None, 'logo_url': None, 'brand_primary': None, 'brand_accent': None})
+    return jsonify(dict(row))
+
+
 @app.route('/api/auth/login', methods=['POST'])
 def login():
     client_ip = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
@@ -11855,7 +11880,24 @@ def serve_sw():
 
 @app.route('/manifest.json')
 def serve_manifest():
-    response = send_from_directory('../public', 'manifest.json')
+    # The name and short_name are the one part of this file that is the JCC's,
+    # not the platform's — everything else (icons, colours, scope) is fixed
+    # regardless of which organization is asking. Read from the database
+    # rather than hardcoding a name here, same reasoning as /api/public/branding.
+    from flask import g
+    with open(os.path.join(os.path.dirname(__file__), '..', 'public', 'manifest.json'), encoding='utf-8') as fh:
+        manifest = json.load(fh)
+    g.is_superadmin = True
+    db = get_db()
+    try:
+        row = db.execute('SELECT name FROM organizations ORDER BY id LIMIT 1').fetchone()
+    finally:
+        db.close()
+    if row and row['name']:
+        manifest['name'] = row['name']
+        manifest['short_name'] = row['name'][:12]
+        manifest['description'] = f"{row['name']} attendance and pickup"
+    response = jsonify(manifest)
     response.headers['Cache-Control'] = 'no-cache'
     return response
 

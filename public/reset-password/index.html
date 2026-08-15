@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Reset password – Kikar Afterschool</title>
+  <title>Reset password</title>
   <link rel="icon" href="/assets/icon-32.png" sizes="32x32" />
   <link rel="icon" href="/assets/icon-192.png" sizes="192x192" />
   <link rel="manifest" href="/manifest.json" />
   <meta name="theme-color" content="#f6f8fb" />
-  <meta name="description" content="Reset your Kikar Afterschool password" />
+  <meta name="description" content="Reset your afterschool program password" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Kikar" />
+  <meta name="apple-mobile-web-app-title" content="Afterschool" />
   <link rel="apple-touch-icon" href="/assets/icon-192.png" />
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;800&family=Raleway:wght@300&display=swap');
@@ -19,7 +19,8 @@
     body { font-family: 'Figtree', system-ui, sans-serif; background: #f6f8fb; color: #141b2b;
            min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
     .card { width: 100%; max-width: 400px; }
-    .logo { text-align: center; margin-bottom: 28px; display: flex; flex-direction: column; gap: 6px; }
+    .logo { text-align: center; margin-bottom: 28px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    .logo img { max-height: 2.5rem; width: auto; max-width: 11rem; object-fit: contain; }
     .wordmark { font-family: 'Raleway', system-ui, sans-serif; font-weight: 300;
                 letter-spacing: 0.34em; font-size: 1.5rem; color: #141b2b; }
     .sub-brand { font-size: 0.6rem; font-weight: 600; text-transform: uppercase;
@@ -44,7 +45,7 @@
 </head>
 <body>
 <div class="card">
-  <div class="logo"><span class="wordmark">KIKAR</span><span class="sub-brand">Afterschool</span></div>
+  <div class="logo" id="logo"><span class="wordmark">KIKAR</span><span class="sub-brand">Afterschool</span></div>
 
   <!-- Step 1: Request reset -->
   <div id="step-request">
@@ -80,6 +81,26 @@
 </div>
 
 <script>
+// No session here — this page must work for someone who cannot sign in — so
+// it asks the same public endpoint the login screen does. Falls back to the
+// static KIKAR wordmark already in the markup on any failure.
+fetch('/api/public/branding').then((r) => r.json()).then((b) => {
+  if (b.name) document.title = 'Reset password – ' + b.name;
+  const el = document.getElementById('logo');
+  if (b.logo_url) {
+    const img = document.createElement('img');
+    img.src = b.logo_url;
+    img.alt = b.name || '';
+    el.replaceChildren(img);
+  } else if (b.name) {
+    const span = document.createElement('span');
+    span.className = 'wordmark';
+    span.style.letterSpacing = 'normal';
+    span.textContent = b.name;
+    el.replaceChildren(span);
+  }
+}).catch(() => {});
+
 const params = new URLSearchParams(window.location.search);
 const resetToken = params.get('token');
 
