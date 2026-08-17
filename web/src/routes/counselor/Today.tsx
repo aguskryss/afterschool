@@ -12,7 +12,9 @@ import {
 import { api } from '@/lib/api'
 import { hasModule } from '@/lib/auth'
 import {
+  hasAllergy,
   schoolProgress,
+  shortAllergy,
   useAttendanceMarks,
   useRoster,
   type RosterChild,
@@ -436,7 +438,7 @@ function ExceptionsPanel({
       }
       for (const c of s.absent) absent.push({ child: c, school: s.school })
       for (const c of s.attending) {
-        if (c.allergies?.trim()) allergic.push({ child: c, school: s.school })
+        if (hasAllergy(c.allergies)) allergic.push({ child: c, school: s.school })
       }
     }
     return { pending, absent, allergic }
@@ -503,8 +505,8 @@ function ExceptionsPanel({
                 <p className="text-[0.95rem] font-extrabold text-ink-900">
                   {child.name}
                 </p>
-                <p className="text-[0.85rem] font-extrabold text-berry-600">
-                  {child.allergies}
+                <p className="truncate text-[0.85rem] font-extrabold tracking-wide text-berry-600 uppercase">
+                  {shortAllergy(child.allergies!.trim())}
                 </p>
                 <p className="text-[0.8rem] font-semibold text-ink-500">
                   {school}

@@ -18,6 +18,7 @@ import {
   useSetBlockChecks,
   type BlockRef,
 } from '@/lib/blockChecks'
+import { hasAllergy, shortAllergy } from '@/lib/roster'
 import { Card, EmptyState, Skeleton } from '@/components/ui'
 
 type Child = {
@@ -221,9 +222,12 @@ function groupsFor(block: Block): Group[] {
  * THE ALLERGY FIX IS THE POINT
  *   Every child used to render a red alert icon reading `n/a`, which is a
  *   placeholder styled as an emergency. Sixteen of them buried the two children
- *   who actually carry one. A child with no allergy now renders NOTHING —
- *   no icon, no dash, no reserved column — and the two who do get a red bar
- *   under their name that opens the full list.
+ *   who actually carry one. `hasAllergy()` (lib/roster.ts) is what tells the
+ *   difference — a raw truthy check on the field passes "N/A" and "Ninguna"
+ *   right through, since a spreadsheet's "no" is still non-empty text. A child
+ *   with no real allergy now renders NOTHING — no icon, no dash, no reserved
+ *   column — and the ones who do get a red bar under their name that opens the
+ *   full list.
  */
 export function CounselorMyDay() {
   // `?date=` so a push notification can deep-link to the afternoon it is about.
@@ -265,7 +269,7 @@ export function CounselorMyDay() {
       for (const c of b.children) {
         seats += 1
         seen.add(c.child_id)
-        if (c.allergies?.trim()) allergic.add(c.child_id)
+        if (hasAllergy(c.allergies)) allergic.add(c.child_id)
       }
     }
     return { distinct: seen.size, seats, allergic: allergic.size }
@@ -492,10 +496,10 @@ function Timeline({
                 </span>
               )}
               {/* Which blocks hold an allergy child, before you open them. */}
-              {b.children.some((c) => c.allergies?.trim()) && (
+              {b.children.some((c) => hasAllergy(c.allergies)) && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-berry-50 px-2 py-1 text-[0.76rem] font-extrabold text-berry-700">
                   <TriangleAlert className="size-3.5" strokeWidth={2.4} />
-                  {b.children.filter((c) => c.allergies?.trim()).length}
+                  {b.children.filter((c) => hasAllergy(c.allergies)).length}
                 </span>
               )}
             </span>
@@ -628,7 +632,7 @@ function GroupCard({
   const isOn = (c: Child) => Boolean(ref && checks?.has(checkKey(ref, c.child_id)))
   const done = expected.filter(isOn).length
   const complete = expected.length > 0 && done === expected.length
-  const withAllergy = group.children.filter((c) => c.allergies?.trim()).length
+  const withAllergy = group.children.filter((c) => hasAllergy(c.allergies)).length
 
   // A finished group recedes to one line so the eye lands on what is still
   // open — and so a big class fits: four groups at full height do not.
@@ -698,7 +702,9 @@ function GroupCard({
       <ul>
         {group.children.map((child) => {
           const on = isOn(child)
-          const allergies = child.allergies?.trim()
+          const allergies = hasAllergy(child.allergies)
+            ? child.allergies!.trim()
+            : undefined
           const open = openAllergy === child.child_id
           return (
             <li
@@ -815,19 +821,3 @@ function GroupCard({
   )
 }
 
-/**
- * The chip form of an allergy list.
- *
- * A ten-allergen string printed inline is a paragraph in a column 300px wide,
- * and it pushes every other row down. The first two terms plus a count is
- * enough to recognise the danger; the full text is one tap away and always
- * complete — never truncated silently.
- */
-function shortAllergy(value: string): string {
-  const parts = value
-    .split(/[,;/]|\band\b/i)
-    .map((p) => p.trim())
-    .filter(Boolean)
-  if (parts.length <= 2) return parts.join(' · ') || value
-  return `${parts.slice(0, 2).join(' · ')} +${parts.length - 2}`
-}

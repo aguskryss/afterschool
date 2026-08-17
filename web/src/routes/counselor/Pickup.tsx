@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { ChevronRight, DoorOpen, Search, TriangleAlert, X } from 'lucide-react'
 import { isGone, isHere } from '@/lib/attendance'
 import {
+  hasAllergy,
   hhmm,
   matchesName,
   useAttendanceMarks,
@@ -182,7 +183,7 @@ export function CounselorPickup() {
                       <div className="min-w-0 flex-1">
                         <p className="flex items-center gap-1.5 truncate font-bold text-ink-900">
                           {child.name}
-                          {child.allergies && (
+                          {hasAllergy(child.allergies) && (
                             <TriangleAlert
                               className="size-3.5 shrink-0 text-coral-500"
                               strokeWidth={2.6}

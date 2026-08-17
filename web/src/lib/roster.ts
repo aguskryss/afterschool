@@ -176,6 +176,54 @@ const fold = (s: string) =>
     .toLowerCase()
 
 /**
+ * Placeholder text a spreadsheet uses to say "no allergy" \u2014 carried through
+ * import as literal text, not a null. A truthy check on the raw field alone
+ * turns every one of these into an alert a counselor has to read past.
+ */
+const NO_ALLERGY_TEXT = new Set([
+  'n a',
+  'na',
+  'none',
+  'no',
+  'nil',
+  'nka',
+  'nkda',
+  'no allergies',
+  'no allergy',
+  'no known allergies',
+  'no known allergy',
+  'ninguna',
+  'ninguno',
+  'sin alergias',
+  'sin alergia',
+])
+
+/** Does this child actually carry an allergy, once placeholder text is out? */
+export function hasAllergy(value: string | null | undefined): boolean {
+  const normalized = fold(value ?? '')
+    .replace(/[^a-z]+/g, ' ')
+    .trim()
+  return normalized !== '' && !NO_ALLERGY_TEXT.has(normalized)
+}
+
+/**
+ * The chip form of an allergy list.
+ *
+ * A ten-allergen string printed inline is a paragraph in a column 300px wide,
+ * and it pushes every other row down. The first two terms plus a count is
+ * enough to recognise the danger; the full text is one tap away and always
+ * complete — never truncated silently.
+ */
+export function shortAllergy(value: string): string {
+  const parts = value
+    .split(/[,;/]|\band\b/i)
+    .map((p) => p.trim())
+    .filter(Boolean)
+  if (parts.length <= 2) return parts.join(' · ') || value
+  return `${parts.slice(0, 2).join(' · ')} +${parts.length - 2}`
+}
+
+/**
  * Does this child match what was typed?
  *
  * Every term has to hit, and a term hits on the start of any part of the name,
