@@ -449,7 +449,7 @@ function Timeline({
             type="button"
             onClick={() => onPick(i)}
             aria-current={active}
-            className={`flex min-w-56 shrink-0 flex-col gap-1 rounded-2xl border-s-4 bg-white p-3 text-start shadow-soft transition-colors active:bg-canvas-100 lg:min-w-0 ${
+            className={`flex min-w-56 shrink-0 flex-col gap-1 rounded-card border-s-4 bg-white p-3 text-start shadow-soft transition-colors active:bg-canvas-100 lg:min-w-0 ${
               active ? 'ring-2 ring-sky-500' : ''
             } ${
               complete
@@ -638,7 +638,7 @@ function GroupCard({
   // open — and so a big class fits: four groups at full height do not.
   if (complete) {
     return (
-      <section className="mb-3.5 break-inside-avoid rounded-2xl border-s-4 border-s-leaf-500 bg-leaf-50 md:mb-4">
+      <section className="mb-3.5 break-inside-avoid rounded-card border-s-4 border-s-leaf-500 bg-leaf-50 md:mb-4">
         <div className="flex items-center gap-2.5 p-3">
           <CircleCheckBig
             className="size-5 shrink-0 text-leaf-600"
@@ -674,18 +674,18 @@ function GroupCard({
   }
 
   return (
-    <section className="mb-3.5 break-inside-avoid overflow-hidden rounded-2xl bg-white shadow-soft md:mb-4">
-      <div
-        className={`flex items-center gap-2.5 border-s-4 p-3 ${
-          group.kind === 'parents'
-            ? 'border-s-leaf-500'
-            : group.kind === 'next'
-              ? 'border-s-sky-500'
-              : group.kind === 'unknown'
-                ? 'border-s-sun-500'
-                : 'border-s-canvas-200'
-        }`}
-      >
+    <section
+      className={`mb-3.5 break-inside-avoid overflow-hidden rounded-card border-s-4 bg-white shadow-soft md:mb-4 ${
+        group.kind === 'parents'
+          ? 'border-s-leaf-500'
+          : group.kind === 'next'
+            ? 'border-s-sky-500'
+            : group.kind === 'unknown'
+              ? 'border-s-sun-500'
+              : 'border-s-canvas-200'
+      }`}
+    >
+      <div className="flex items-center gap-2.5 p-3">
         <div className="min-w-0 flex-1">
           <p className="text-[1.02rem] leading-tight font-extrabold tracking-tight text-ink-900">
             {group.name}
