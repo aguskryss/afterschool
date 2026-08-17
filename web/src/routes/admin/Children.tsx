@@ -7,7 +7,6 @@ import {
   Mail,
   Pencil,
   Phone,
-  Plus,
   Trash2,
   X,
 } from 'lucide-react'
@@ -673,34 +672,34 @@ function DayClassEditor({
         ))}
       </div>
 
-      {available.length > 0 && (
-        <div className="mb-2 flex items-center gap-1.5">
-          <select
-            value={adding}
-            onChange={(e) => setAdding(e.target.value)}
-            aria-label={`Add a class on ${day}`}
-            className="h-9 flex-1 rounded-full border-2 border-canvas-200 bg-white px-3 text-[0.85rem] font-semibold text-ink-800 outline-none focus:border-sky-500"
-          >
-            <option value="">Add a class…</option>
-            {available.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.name}
-                {o.start_time && ` (${clock(o.start_time)}–${clock(o.end_time)})`}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            disabled={!adding}
-            onClick={() => {
-              setIds((prev) => [...prev, Number(adding)])
-              setAdding('')
-            }}
-            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-700 disabled:opacity-40"
-          >
-            <Plus className="size-4" strokeWidth={2.6} />
-          </button>
-        </div>
+      {available.length > 0 ? (
+        <select
+          value={adding}
+          onChange={(e) => {
+            // Picking one adds it immediately — a second "confirm" step here
+            // just reads as "I chose it, why didn't Save keep it".
+            const id = Number(e.target.value)
+            if (id) setIds((prev) => [...prev, id])
+            setAdding('')
+          }}
+          aria-label={`Add a class on ${day}`}
+          className="mb-2 h-9 w-full rounded-full border-2 border-canvas-200 bg-white px-3 text-[0.85rem] font-semibold text-ink-800 outline-none focus:border-sky-500"
+        >
+          <option value="">Add a class…</option>
+          {available.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
+              {o.start_time && ` (${clock(o.start_time)}–${clock(o.end_time)})`}
+            </option>
+          ))}
+        </select>
+      ) : (
+        options !== undefined && (
+          <p className="mb-2 text-[0.8rem] font-medium text-ink-400">
+            No other classes are set up for {day} yet — add one under Classes
+            first.
+          </p>
+        )
       )}
 
       <div className="flex gap-2">
