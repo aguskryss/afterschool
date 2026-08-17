@@ -92,8 +92,12 @@ export function ParentHome() {
         </Card>
       ) : (
         <>
-          {/* The one urgent action, and only when someone is actually there today. */}
-          {attending.length > 0 && (
+          {/* The one urgent action, and only when someone is actually there
+              today — and only for a JCC that runs the announce-then-claim
+              queue. /api/parent/pickup is gated on the 'pickups' module
+              server-side; without this check the button showed for every
+              organization and tapping it always came back "not enabled". */}
+          {hasModule('pickups') && attending.length > 0 && (
             <Card className="mb-6 overflow-hidden">
               <div className="flex items-center gap-3 bg-coral-50 px-5 py-3.5">
                 <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-coral-500 text-white">
