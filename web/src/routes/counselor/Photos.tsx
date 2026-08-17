@@ -100,18 +100,31 @@ export function CounselorPhotos() {
       </h1>
 
       <Card className="mb-5 p-4">
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          aria-label="Choose a photo"
-          onChange={(e) => {
-            setFile(e.target.files?.[0] ?? null)
-            setError('')
-          }}
-          className="mb-3 block w-full text-[0.88rem] font-semibold text-ink-600 file:mr-3 file:rounded-full file:border-0 file:bg-grape-500 file:px-4 file:py-2 file:font-bold file:text-white"
-        />
+        {/* The native input's own button/label text comes from the browser's
+            locale, not this app's — a Spanish OS shows "Seleccionar
+            archivo" no matter what language the rest of the screen is in.
+            Hiding it and driving everything from `file` state keeps the
+            wording ours on any device. */}
+        <div className="mb-3 flex items-center gap-3">
+          <label className="inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-grape-500 px-4 py-2 text-[0.88rem] font-bold text-white active:bg-grape-600">
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              aria-label="Choose a photo"
+              onChange={(e) => {
+                setFile(e.target.files?.[0] ?? null)
+                setError('')
+              }}
+              className="hidden"
+            />
+            Choose photo
+          </label>
+          <span className="min-w-0 flex-1 truncate text-[0.88rem] font-semibold text-ink-600">
+            {file ? file.name : 'No file chosen'}
+          </span>
+        </div>
 
         {file && (
           <>
