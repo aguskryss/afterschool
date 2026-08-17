@@ -158,8 +158,15 @@ function defaultPhase(schools: RosterSchool[], marks: Marks): Phase {
  *   It was a single column of ~200px school cards, so four of six schools fit
  *   and the rest sat below the fold on the one screen whose job is "is
  *   anything wrong right now". They are a grid now — every school visible
- *   without scrolling on a tablet, two-up on a phone — and the space that
- *   bought pays for an exceptions column that did not exist at all.
+ *   without scrolling on a tablet, two-up on a phone.
+ *
+ * NEEDS A PERSON IS A ROW, NOT A RAIL
+ *   It used to be a fixed 320px column squeezed down the side, which is
+ *   barely wider than a phone — a school name or an allergy list either
+ *   truncated with "…" or forced the whole page to scroll sideways-feeling
+ *   narrow. It runs full width below the schools now, its three categories
+ *   side by side on a wide screen, so a name gets the room to actually be
+ *   read instead of guessed at.
  *
  * ONE DENOMINATOR, ALWAYS
  *   The old card could show "0 of 4 in the building", a half-filled bar and a
@@ -202,8 +209,8 @@ export function CounselorToday() {
   })
 
   return (
-    <div className="px-4 pt-4 pb-6 md:px-6 lg:h-dvh lg:overflow-hidden">
-      <div className="flex flex-col lg:h-full">
+    <div className="px-4 pt-4 pb-6 md:px-6">
+      <div className="flex flex-col">
         <PushPrompt />
 
         <header className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1">
@@ -247,8 +254,8 @@ export function CounselorToday() {
             />
           </Card>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
-            <div className="flex min-w-0 flex-1 flex-col gap-3">
+          <div className="flex flex-col gap-5">
+            <div className="flex min-w-0 flex-col gap-3">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                 <div
                   className="flex gap-1 rounded-full bg-canvas-100 p-1"
@@ -293,7 +300,7 @@ export function CounselorToday() {
                 </span>
               </p>
 
-              <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-2 gap-3 overflow-y-auto lg:grid-cols-[repeat(auto-fill,minmax(15rem,1fr))]">
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-[repeat(auto-fill,minmax(15rem,1fr))]">
                 {schools.map((school) => (
                   <SchoolCard
                     key={school.school_id}
@@ -420,6 +427,12 @@ type Flagged = { child: RosterChild; school: string }
  * closes out; absences come from the parent; and the allergy section is a
  * standing reference rather than an exception, because a nut allergy does not
  * stop being true when nothing else is wrong.
+ *
+ * A full-width row of cards, not a rail down the side: a rail can only ever be
+ * as wide as the sidebar, which meant a school name or an allergy list either
+ * truncated or wrapped into a column barely wider than a phone. Here each
+ * category gets a real card, side by side on a wide screen, with room for the
+ * whole name.
  */
 function ExceptionsPanel({
   schools,
@@ -445,90 +458,48 @@ function ExceptionsPanel({
   }, [schools, marks])
 
   return (
-    <aside
-      aria-label="Needs a person"
-      className="flex shrink-0 flex-col gap-2.5 lg:w-80 lg:overflow-y-auto"
-    >
+    <section aria-label="Needs a person" className="flex flex-col gap-2.5">
       <p className="text-[0.74rem] font-extrabold tracking-wider text-ink-400 uppercase">
         Needs a person
       </p>
 
-      {pending.length === 0 ? (
-        <Card className="flex items-center gap-2.5 bg-leaf-50 p-3.5">
-          <CircleCheckBig
-            className="size-5 shrink-0 text-leaf-600"
-            strokeWidth={2.4}
-          />
-          <div className="min-w-0">
-            <p className="text-[0.95rem] font-extrabold text-leaf-700">
-              Everyone is accounted for
-            </p>
-            <p className="text-[0.82rem] font-semibold text-leaf-700/85">
-              No child is missing an answer today.
-            </p>
-          </div>
-        </Card>
-      ) : (
-        <ExcSection
-          title="Not answered for"
-          count={pending.length}
-          tone="sun"
-          rows={pending}
-        />
-      )}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {pending.length === 0 ? (
+          <Card className="flex items-center gap-2.5 bg-leaf-50 p-3.5">
+            <CircleCheckBig
+              className="size-5 shrink-0 text-leaf-600"
+              strokeWidth={2.4}
+            />
+            <div className="min-w-0">
+              <p className="text-[0.95rem] font-extrabold text-leaf-700">
+                Everyone is accounted for
+              </p>
+              <p className="text-[0.82rem] font-semibold text-leaf-700/85">
+                No child is missing an answer today.
+              </p>
+            </div>
+          </Card>
+        ) : (
+          <ExcSection title="Not answered for" tone="sun" rows={pending} />
+        )}
 
-      {absent.length > 0 && (
-        <ExcSection
-          title="Reported absent"
-          count={absent.length}
-          tone="ink"
-          rows={absent}
-        />
-      )}
+        {absent.length > 0 && (
+          <ExcSection title="Reported absent" tone="ink" rows={absent} />
+        )}
 
-      {/* Red is only ever this. */}
-      {allergic.length > 0 && (
-        <section className="overflow-hidden rounded-card border-s-4 border-s-berry-500 bg-white shadow-soft">
-          <p className="flex items-center gap-2 px-3.5 pt-3 pb-1 text-[0.74rem] font-extrabold tracking-wider text-berry-600 uppercase">
-            <TriangleAlert className="size-4 shrink-0" strokeWidth={2.4} />
-            Allergy alerts today
-            <span className="ms-auto grid h-6 min-w-6 place-items-center rounded-lg bg-berry-100 px-1.5 text-[0.8rem] font-extrabold text-berry-700">
-              {allergic.length}
-            </span>
-          </p>
-          <ul className="px-3.5 pt-1 pb-3">
-            {allergic.map(({ child, school }) => (
-              <li
-                key={child.id}
-                className="border-t border-berry-100 py-2 first:border-t-0"
-              >
-                <p className="text-[0.95rem] font-extrabold text-ink-900">
-                  {child.name}
-                </p>
-                <p className="truncate text-[0.85rem] font-extrabold tracking-wide text-berry-600 uppercase">
-                  {shortAllergy(child.allergies!.trim())}
-                </p>
-                <p className="text-[0.8rem] font-semibold text-ink-500">
-                  {school}
-                  {child.grade && ` · Gr ${child.grade}`}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-    </aside>
+        {/* Red is only ever this. */}
+        {allergic.length > 0 && <AllergySection rows={allergic} />}
+      </div>
+    </section>
   )
 }
 
 function ExcSection({
   title,
-  count,
   tone,
   rows,
 }: {
   title: string
-  count: number
   tone: 'sun' | 'ink'
   rows: Flagged[]
 }) {
@@ -546,7 +517,7 @@ function ExcSection({
         )}
         {title}
         <span className="ms-auto grid h-6 min-w-6 place-items-center rounded-lg bg-canvas-100 px-1.5 text-[0.8rem] font-extrabold text-ink-600">
-          {count}
+          {rows.length}
         </span>
       </p>
       <ul className="px-3.5 pt-1 pb-2">
@@ -555,10 +526,10 @@ function ExcSection({
             key={child.id}
             className="border-t border-canvas-100 py-2 first:border-t-0"
           >
-            <p className="truncate text-[0.95rem] font-extrabold text-ink-900">
+            <p className="text-[0.95rem] font-extrabold text-ink-900">
               {child.name}
             </p>
-            <p className="truncate text-[0.83rem] font-semibold text-ink-500">
+            <p className="text-[0.83rem] font-semibold text-ink-500">
               {school}
               {child.grade && ` · Gr ${child.grade}`}
             </p>
@@ -571,6 +542,50 @@ function ExcSection({
           type="button"
           onClick={() => setAll(true)}
           className="min-h-11 w-full px-3.5 pb-2 text-start text-[0.84rem] font-extrabold text-sky-700"
+        >
+          Show the other {rows.length - shown.length}
+        </button>
+      )}
+    </section>
+  )
+}
+
+function AllergySection({ rows }: { rows: Flagged[] }) {
+  const [all, setAll] = useState(false)
+  const shown = all ? rows : rows.slice(0, 6)
+  return (
+    <section className="overflow-hidden rounded-card border-s-4 border-s-berry-500 bg-white shadow-soft">
+      <p className="flex items-center gap-2 px-3.5 pt-3 pb-1 text-[0.74rem] font-extrabold tracking-wider text-berry-600 uppercase">
+        <TriangleAlert className="size-4 shrink-0" strokeWidth={2.4} />
+        Allergy alerts today
+        <span className="ms-auto grid h-6 min-w-6 place-items-center rounded-lg bg-berry-100 px-1.5 text-[0.8rem] font-extrabold text-berry-700">
+          {rows.length}
+        </span>
+      </p>
+      <ul className="px-3.5 pt-1 pb-2">
+        {shown.map(({ child, school }) => (
+          <li
+            key={child.id}
+            className="border-t border-berry-100 py-2 first:border-t-0"
+          >
+            <p className="text-[0.95rem] font-extrabold text-ink-900">
+              {child.name}
+            </p>
+            <p className="text-[0.85rem] font-extrabold tracking-wide text-berry-600 uppercase">
+              {shortAllergy(child.allergies!.trim())}
+            </p>
+            <p className="text-[0.8rem] font-semibold text-ink-500">
+              {school}
+              {child.grade && ` · Gr ${child.grade}`}
+            </p>
+          </li>
+        ))}
+      </ul>
+      {rows.length > shown.length && (
+        <button
+          type="button"
+          onClick={() => setAll(true)}
+          className="min-h-11 w-full px-3.5 pb-2 text-start text-[0.84rem] font-extrabold text-berry-700"
         >
           Show the other {rows.length - shown.length}
         </button>
