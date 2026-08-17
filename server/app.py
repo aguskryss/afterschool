@@ -2404,18 +2404,35 @@ def admin_delete_school(school_id):
 # parse_grade() either way. Deleting a grade here never touches an existing
 # child's row; it only stops offering that option going forward.
 
-def _grade_sort_order(db, name):
+def _grade_sort_order(db, grade_num):
     """K first, then 1 through 12 in order; anything unrecognized goes last.
 
     Mirrors what a human would expect without asking them to also pick a
     number — parse_grade() already knows K and 0 are the same rank, so a
     label that already means something sorts itself.
     """
-    (_label, grade_num), _code = parse_grade(name)
     if grade_num is not None:
         return grade_num
     row = db.execute("SELECT COALESCE(MAX(sort_order), -1) AS n FROM grades").fetchone()
     return row['n'] + 1
+
+
+def _grade_num_or_400(name):
+    """Reject a grade name parse_grade() cannot turn into a number.
+
+    Without this, this list could offer a name — 'Pre-K', a typo — that looks
+    like a validated option but always resolves to grade_num NULL for any
+    child assigned it: invisible to care rules, the daily board, every screen
+    that groups by grade. A picker that can silently produce that is worse
+    than the free text it replaced, because it looks safe.
+    """
+    (_label, grade_num), _code = parse_grade(name)
+    if grade_num is None:
+        return None, (jsonify({
+            'error': f'"{name}" is not a grade this app recognises. Try K, '
+                     'a number like 1-12, or 1st/2nd/3rd/etc.'
+        }), 400)
+    return grade_num, None
 
 
 @app.route('/api/admin/grades', methods=['GET'])
@@ -2436,9 +2453,12 @@ def admin_add_grade():
     name = (request.json or {}).get('name', '').strip()
     if not name:
         return jsonify({'error': 'Grade name required'}), 400
+    grade_num, err = _grade_num_or_400(name)
+    if err:
+        return err
     db = get_db()
     try:
-        sort_order = _grade_sort_order(db, name)
+        sort_order = _grade_sort_order(db, grade_num)
         db.execute(
             "INSERT INTO grades (name, sort_order) VALUES (%s, %s)",
             (name, sort_order),
@@ -2458,9 +2478,12 @@ def admin_update_grade(grade_id):
     name = (request.json or {}).get('name', '').strip()
     if not name:
         return jsonify({'error': 'Grade name required'}), 400
+    grade_num, err = _grade_num_or_400(name)
+    if err:
+        return err
     db = get_db()
     try:
-        sort_order = _grade_sort_order(db, name)
+        sort_order = _grade_sort_order(db, grade_num)
         cur = db.execute(
             "UPDATE grades SET name = %s, sort_order = %s WHERE id = %s RETURNING id",
             (name, sort_order, grade_id),
