@@ -219,6 +219,16 @@ function groupsFor(block: Block): Group[] {
  *   drawn. Inside it the children are grouped by where they go next, in columns
  *   that sit side by side on a tablet, so the whole routing plan is one view.
  *
+ * ONE CONTAINER, NO SIDEWAYS SWIPE
+ *   The block picker used to be its own floating strip that scrolled
+ *   sideways on a phone, sitting next to a second floating card for the
+ *   block itself — two pieces with soft, easy-to-miss shadows and a gap
+ *   between them that read as "nothing is actually connected here." It is
+ *   one bordered container now, the same shape `DataTable` uses for a
+ *   header and a body: the picker wraps onto as many lines as it needs
+ *   instead of scrolling, and a real divider line — not just a gap — is
+ *   what separates it from the block below.
+ *
  * THE ALLERGY FIX IS THE POINT
  *   Every child used to render a red alert icon reading `n/a`, which is a
  *   placeholder styled as an emergency. Sixteen of them buried the two children
@@ -393,25 +403,29 @@ export function CounselorMyDay() {
             </Card>
           )}
 
-          <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row lg:gap-4">
-            <Timeline
+          <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <BlockPicker
               blocks={blocks}
               index={index}
               nowIndex={nowIndex}
               date={date}
               onPick={setPicked}
             />
-            {block && <BlockPane block={block} date={date} isToday={isToday} />}
-          </div>
+            {block && <BlockContent block={block} date={date} isToday={isToday} />}
+          </Card>
         </>
       )}
     </div>
   )
 }
 
-/* ── Left: the day, as a list you pick from ──────────────────────────── */
+/* ── Top: the day, as a row of chips you pick from ───────────────────── */
 
-function Timeline({
+/**
+ * Wraps onto as many lines as it needs. Never scrolls sideways — a phone
+ * with eight blocks gets a taller header, not a swipe.
+ */
+function BlockPicker({
   blocks,
   index,
   nowIndex,
@@ -427,12 +441,9 @@ function Timeline({
   const { data: checks } = useBlockChecks(date)
 
   return (
-    // A column beside the block on a tablet; a horizontal strip that scrolls
-    // across the top on a phone, where a 30% column would leave nothing for
-    // the children.
     <nav
       aria-label="Your blocks"
-      className="flex shrink-0 gap-2.5 overflow-x-auto pb-1 lg:w-64 lg:flex-col lg:overflow-x-visible lg:overflow-y-auto lg:pb-0 xl:w-72"
+      className="flex flex-wrap gap-2 border-b border-canvas-200 p-3"
     >
       {blocks.map((b, i) => {
         const ref = blockRef(b)
@@ -443,66 +454,48 @@ function Timeline({
         const complete = expected.length > 0 && done === expected.length
         const isNow = i === nowIndex
         const active = i === index
+        const allergic = b.children.filter((c) => hasAllergy(c.allergies)).length
         return (
           <button
             key={`${b.kind}${i}`}
             type="button"
             onClick={() => onPick(i)}
             aria-current={active}
-            className={`flex min-w-56 shrink-0 flex-col gap-1 rounded-card border-s-4 bg-white p-3 text-start shadow-soft transition-colors active:bg-canvas-100 lg:min-w-0 ${
-              active ? 'ring-2 ring-sky-500' : ''
-            } ${
-              complete
-                ? 'border-s-leaf-500'
-                : isNow
-                  ? 'border-s-sky-500'
-                  : 'border-s-canvas-200'
+            className={`flex min-h-11 items-center gap-2 rounded-full border-2 py-1.5 ps-3.5 pe-3 text-start transition-colors active:bg-canvas-100 ${
+              active
+                ? 'border-sky-500 bg-sky-50'
+                : 'border-canvas-200 bg-white'
             }`}
           >
-            <span className="text-[0.8rem] font-extrabold text-ink-500">
-              {clock(b.start_time)} – {clock(b.end_time)}
-            </span>
-            <span
-              className={`text-[1.05rem] leading-tight font-extrabold tracking-tight ${
-                complete ? 'text-ink-500' : 'text-ink-900'
-              }`}
-            >
-              {b.title}
-            </span>
-            <span className="text-[0.8rem] font-semibold text-ink-400">
-              {b.location ?? (b.kind === 'care' ? 'Care' : '')}
-              {b.location && b.kind === 'care' ? ' · Care' : ''}
-              {expected.length > 0 &&
-                `${b.location || b.kind === 'care' ? ' · ' : ''}${expected.length} ${
-                  expected.length === 1 ? 'child' : 'children'
+            <span className="flex flex-col leading-tight">
+              <span
+                className={`text-[0.9rem] font-extrabold ${
+                  active ? 'text-sky-700' : complete ? 'text-ink-500' : 'text-ink-900'
                 }`}
+              >
+                {b.title}
+              </span>
+              <span className="text-[0.74rem] font-bold text-ink-400">
+                {clock(b.start_time)}–{clock(b.end_time)}
+              </span>
             </span>
-            <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
-              {complete ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-leaf-50 px-2.5 py-1 text-[0.76rem] font-extrabold text-leaf-700">
-                  <CircleCheckBig className="size-3.5" strokeWidth={2.4} />
-                  All {expected.length} confirmed
-                </span>
-              ) : (
-                <span
-                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.76rem] font-extrabold ${
-                    isNow
-                      ? 'bg-sky-50 text-sky-700'
-                      : 'bg-canvas-100 text-ink-500'
-                  }`}
-                >
-                  {isNow && <Clock className="size-3.5" strokeWidth={2.4} />}
-                  {isNow ? `Now · ${done} of ${expected.length}` : `${done} of ${expected.length}`}
-                </span>
-              )}
-              {/* Which blocks hold an allergy child, before you open them. */}
-              {b.children.some((c) => hasAllergy(c.allergies)) && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-berry-50 px-2 py-1 text-[0.76rem] font-extrabold text-berry-700">
-                  <TriangleAlert className="size-3.5" strokeWidth={2.4} />
-                  {b.children.filter((c) => hasAllergy(c.allergies)).length}
-                </span>
-              )}
-            </span>
+            {complete ? (
+              <CircleCheckBig
+                className="size-4 shrink-0 text-leaf-600"
+                strokeWidth={2.6}
+              />
+            ) : (
+              isNow && (
+                <Clock className="size-4 shrink-0 text-sky-600" strokeWidth={2.6} />
+              )
+            )}
+            {/* Which blocks hold an allergy child, before you open them. */}
+            {allergic > 0 && (
+              <span className="flex shrink-0 items-center gap-0.5 text-[0.76rem] font-extrabold text-berry-600">
+                <TriangleAlert className="size-3.5 shrink-0" strokeWidth={2.6} />
+                {allergic}
+              </span>
+            )}
           </button>
         )
       })}
@@ -510,9 +503,9 @@ function Timeline({
   )
 }
 
-/* ── Right: one block, in full ───────────────────────────────────────── */
+/* ── Below: the picked block, in full ────────────────────────────────── */
 
-function BlockPane({
+function BlockContent({
   block,
   date,
   isToday,
@@ -544,8 +537,8 @@ function BlockPane({
   const chained = block.children.filter((c) => c.chained || c.from_class).length
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-3">
-      <Card className="p-3.5 md:p-4">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="p-3.5 md:p-4">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h2 className="text-[1.35rem] font-extrabold tracking-tight text-ink-900 md:text-[1.55rem]">
             {block.title}
@@ -580,20 +573,20 @@ function BlockPane({
             )}
           </div>
         )}
-      </Card>
+      </div>
 
       {block.children.length === 0 ? (
-        <Card className="p-5">
+        <div className="border-t border-canvas-200 p-5">
           <p className="text-[0.9rem] font-semibold text-ink-400">
             Nobody is in this block.
           </p>
-        </Card>
+        </div>
       ) : (
         // The routing plan, side by side. `columns` rather than a grid so the
         // browser balances the group cards by height instead of leaving one
         // column short — the groups are wildly uneven (a group of 5 next to a
         // group of 1) and a fixed grid would strand half the screen.
-        <div className="min-h-0 flex-1 lg:overflow-y-auto">
+        <div className="min-h-0 flex-1 border-t border-canvas-200 p-3.5 lg:overflow-y-auto md:p-4">
           <div className="md:columns-2 md:gap-4 xl:columns-3">
             {groups.map((g) => (
               <GroupCard
@@ -610,7 +603,7 @@ function BlockPane({
           </div>
         </div>
       )}
-    </section>
+    </div>
   )
 }
 
