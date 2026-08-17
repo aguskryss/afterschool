@@ -3104,6 +3104,119 @@ def _child_status(child, day_name, absent_ids):
     return 'expected' if scheduled else 'not_scheduled'
 
 
+def _parse_days_payload(data):
+    """`days` from a create/update body, normalised to `[{day, class_session_ids}]`.
+
+    Accepts the older shape too — a bare list of weekday names, still sent by
+    the two "add a child" forms that have no class picker — and treats each
+    one as "attending, no class" so neither caller has to change. Returns
+    (days, all_class_ids, error_response); error_response is None on success.
+    """
+    days = data.get('days') or []
+    if not isinstance(days, list):
+        return None, None, (jsonify({'error': 'days must be a list'}), 400)
+
+    parsed = []
+    all_class_ids: set[int] = set()
+    for entry in days:
+        if isinstance(entry, str):
+            entry = {'day': entry, 'class_session_ids': []}
+        if not isinstance(entry, dict) or 'day' not in entry:
+            return None, None, (jsonify({
+                'error': 'Each day must be a weekday name or {day, class_session_ids}'
+            }), 400)
+        day = entry['day']
+        if day not in WEEKDAY_ORDER:
+            return None, None, (jsonify({'error': f'Invalid weekday: {day}'}), 400)
+        ids = entry.get('class_session_ids') or []
+        if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
+            return None, None, (jsonify({
+                'error': f'class_session_ids for {day} must be a list of ids'
+            }), 400)
+        all_class_ids.update(ids)
+        parsed.append({'day': day, 'class_session_ids': ids})
+    return parsed, all_class_ids, None
+
+
+def _sync_child_schedule(db, child_id, days, all_class_ids):
+    """Write this child's weekday attendance and class enrollments together.
+
+    `days` is `[{'day': 'Monday', 'class_session_ids': [12, 15]}, ...]` — only
+    the days a child should attend after this call. A day left out is a day
+    they no longer attend, so neither a registration for it nor a class on it
+    should survive: the two are kept as a pair here the same way the roster
+    importer keeps them (`roster_staging._apply_registrations`), so a manual
+    edit can never leave a stale class enrollment behind on a day the child
+    was just taken off of.
+
+    A registration already on a day that stays is left alone —
+    `dismissal_time` lives there and arrives from the roster import, not from
+    here, exactly as the plain days-only path above already guaranteed.
+
+    `class_session_ids` are validated against the day they are claimed for
+    before this runs — see the caller. That check is also what keeps this
+    from ever enrolling a child in another organization's class: RLS makes a
+    class_sessions row from another JCC invisible rather than a permission
+    error, so the id simply would not have validated.
+    """
+    kept = [d['day'] for d in days]
+    db.execute(
+        "DELETE FROM registrations WHERE child_id = %s AND day_of_week <> ALL(%s)",
+        (child_id, kept),
+    )
+    db.execute("""
+        DELETE FROM class_enrollments e
+              USING class_sessions cs
+         WHERE e.class_session_id = cs.id AND e.child_id = %s
+           AND cs.day_of_week <> ALL(%s)
+    """, (child_id, kept))
+
+    for entry in days:
+        day, wanted = entry['day'], entry['class_session_ids']
+        db.execute(
+            "INSERT INTO registrations (child_id, day_of_week) VALUES (%s, %s) "
+            "ON CONFLICT (child_id, day_of_week) DO NOTHING",
+            (child_id, day),
+        )
+        # Everything this child has on THIS day that is not in the new set is
+        # coming off it — the rest of `wanted` gets inserted below.
+        db.execute("""
+            DELETE FROM class_enrollments e
+                  USING class_sessions cs
+             WHERE e.class_session_id = cs.id AND e.child_id = %s
+               AND cs.day_of_week = %s AND cs.id <> ALL(%s)
+        """, (child_id, day, wanted))
+        for class_id in wanted:
+            db.execute(
+                "INSERT INTO class_enrollments (child_id, class_session_id) "
+                "VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                (child_id, class_id),
+            )
+
+
+def _validate_class_days(db, days, all_class_ids):
+    """None on success, else the (response, status) for a class on the wrong day.
+
+    A class picked for Monday has to actually run on Monday — the picker only
+    offers same-day classes, but the check belongs here too, since the id is
+    the only thing that crosses the wire and nothing stops a stale or crafted
+    one arriving instead.
+    """
+    if not all_class_ids:
+        return None
+    valid_day = {r['id']: r['day_of_week'] for r in db.execute(
+        "SELECT id, day_of_week FROM class_sessions WHERE id = ANY(%s) AND active",
+        (list(all_class_ids),),
+    ).fetchall()}
+    for entry in days:
+        bad = [i for i in entry['class_session_ids'] if valid_day.get(i) != entry['day']]
+        if bad:
+            return jsonify({
+                'error': f"Class {bad[0]} does not run on {entry['day']}"
+            }), 400
+    return None
+
+
 @app.route('/api/admin/children', methods=['GET'])
 @jwt_required()
 def admin_get_children():
@@ -3284,6 +3397,21 @@ def admin_get_child(child_id):
              ORDER BY ar.attendance_date DESC
              LIMIT 14
         """, (child_id,)).fetchall()
+
+        # Where this child actually goes, day by day. Classes are read
+        # straight off class_enrollments; the care room is never one of
+        # those rows — nothing stores it per child — so it is worked out the
+        # same way daily_routing works out anyone else's afternoon, from
+        # grade against the rules in Care Rooms.
+        class_rows = db.execute("""
+            SELECT cs.id, cs.name, cs.day_of_week, cs.start_time, cs.end_time
+              FROM class_enrollments e
+              JOIN class_sessions cs ON cs.id = e.class_session_id
+             WHERE e.child_id = %s AND cs.active
+        """, (child_id,)).fetchall()
+        care_rules = _care_rules(db)
+        room_names = {r['id']: r['name']
+                      for r in db.execute("SELECT id, name FROM rooms").fetchall()}
     finally:
         db.close()
 
@@ -3304,6 +3432,37 @@ def admin_get_child(child_id):
         'checked_out_at': iso_utc(r['checked_out_at']),
         'submitted_by_name': r['submitted_by_name'],
     } for r in recent]
+
+    def as_text(value):
+        return value.strftime('%H:%M') if value is not None else None
+
+    classes_by_day: dict[str, list] = {}
+    for r in class_rows:
+        classes_by_day.setdefault(r['day_of_week'], []).append(dict(r))
+    for day_entry in child['days']:
+        day = day_entry['day']
+        day_classes = sorted(
+            classes_by_day.get(day, []),
+            key=lambda c: (c['start_time'] is None, c['start_time']),
+        )
+        day_entry['classes'] = [{
+            'id': c['id'], 'name': c['name'],
+            'start_time': as_text(c['start_time']),
+            'end_time': as_text(c['end_time']),
+        } for c in day_classes]
+        day_entry['care'] = []
+        for segment in daily_routing.care_segments(day_classes, day_entry['dismissal_time']):
+            winner = (
+                daily_routing.resolve_care_room(
+                    care_rules, day, segment['time_block'], child['grade_num'])
+                if child['grade_num'] is not None else None
+            )
+            day_entry['care'].append({
+                'time_block': segment['time_block'],
+                'room_id': winner['room_id'] if winner else None,
+                'room_name': room_names.get(winner['room_id']) if winner else None,
+            })
+
     return jsonify(child)
 
 
@@ -3316,11 +3475,14 @@ def admin_add_child():
     name = data.get('name', '').strip()
     parent_id = data.get('parent_id')
     school_id = data.get('school_id')
-    days = data.get('days', [])
     service_type = data.get('service_type', 'Full Service').strip()
 
     if not name or not parent_id or not school_id:
         return jsonify({'error': 'Missing required fields'}), 400
+
+    days, all_class_ids, err = _parse_days_payload(data)
+    if err:
+        return err
 
     # Same fields the roster importer fills in from a spreadsheet, for a child
     # entered by hand instead. grade_num is derived from grade_label the same
@@ -3344,6 +3506,9 @@ def admin_add_child():
 
     db = get_db()
     try:
+        class_err = _validate_class_days(db, days, all_class_ids)
+        if class_err:
+            return class_err
         cur = db.execute(
             "INSERT INTO children (name, parent_id, school_id, service_type, "
             "grade_label, grade_num, dob, sex, bus_rider, arrival_mode, "
@@ -3353,8 +3518,7 @@ def admin_add_child():
              dob, sex, bus_rider, arrival_mode, allergies, notes),
         )
         child_id = cur.fetchone()['id']
-        for day in days:
-            db.execute("INSERT INTO registrations (child_id, day_of_week) VALUES (%s, %s) ON CONFLICT DO NOTHING", (child_id, day))
+        _sync_child_schedule(db, child_id, days, all_class_ids)
         db.commit()
     except psycopg2.errors.ForeignKeyViolation:
         return jsonify({'error': 'That parent or school does not exist'}), 400
@@ -3365,7 +3529,8 @@ def admin_add_child():
 @app.route('/api/admin/children/<int:child_id>', methods=['PUT'])
 @jwt_required()
 def admin_update_child(child_id):
-    """Set which weekdays a child attends, and/or the fields on their profile.
+    """Set which weekdays a child attends and which classes they're in, and/or
+    the fields on their profile.
 
     Two things `days` is careful about, both of which it used to get wrong:
 
@@ -3380,6 +3545,11 @@ def admin_update_child(child_id):
         arrives from the roster import, not from this endpoint — rewriting
         the row would silently drop the hour the child goes home.
 
+    `days` items carry `class_session_ids` too now — see
+    `_sync_child_schedule` for how that stays in step with the day itself.
+    The care room a child ends up in is never part of this: it is always
+    computed from grade + the rules in Care Rooms, never stored per child.
+
     The profile fields are the same "present means change it" rule, field by
     field — a form that only shows some of a child's data must not be able to
     null out the rest of it by omission.
@@ -3391,22 +3561,13 @@ def admin_update_child(child_id):
     db = get_db()
     try:
         if 'days' in data:
-            days = data.get('days') or []
-            if not isinstance(days, list):
-                return jsonify({'error': 'days must be a list of weekday names'}), 400
-            invalid = [d for d in days if d not in WEEKDAY_ORDER]
-            if invalid:
-                return jsonify({'error': f'Invalid weekday: {invalid[0]}'}), 400
-            db.execute(
-                "DELETE FROM registrations WHERE child_id = %s AND day_of_week <> ALL(%s)",
-                (child_id, days),
-            )
-            for day in days:
-                db.execute(
-                    "INSERT INTO registrations (child_id, day_of_week) VALUES (%s, %s) "
-                    "ON CONFLICT (child_id, day_of_week) DO NOTHING",
-                    (child_id, day),
-                )
+            days, all_class_ids, err = _parse_days_payload(data)
+            if err:
+                return err
+            class_err = _validate_class_days(db, days, all_class_ids)
+            if class_err:
+                return class_err
+            _sync_child_schedule(db, child_id, days, all_class_ids)
 
         updates = {}
         if 'name' in data:

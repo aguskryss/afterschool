@@ -1,7 +1,16 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Baby, Mail, Pencil, Phone, Trash2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  Baby,
+  Mail,
+  Pencil,
+  Phone,
+  Plus,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
 import { confirmDelete, notifyError } from '@/lib/confirm'
 import { DataTable, type Column } from '@/components/DataTable'
@@ -37,7 +46,41 @@ const INITIALS: Record<string, string> = {
   Friday: 'F',
 }
 
-type Day = { day: string; dismissal_time: number | null }
+type DayClass = {
+  id: number
+  name: string
+  start_time: string | null
+  end_time: string | null
+}
+
+type DayCare = {
+  time_block: string
+  room_id: number | null
+  room_name: string | null
+}
+
+type Day = {
+  day: string
+  dismissal_time: number | null
+  /** From class_enrollments — editable here. */
+  classes: DayClass[]
+  /**
+   * Never stored per child — computed live from grade against the rules in
+   * Care Rooms, the same way daily_routing works out anyone else's
+   * afternoon. Shown for context; not editable from this screen. See the
+   * conversation this came out of: overriding it per child would break the
+   * one guarantee that makes a care room trustworthy — that it always comes
+   * from the grade, never from a one-off click.
+   */
+  care: DayCare[]
+}
+
+/** How the Care Rooms screen writes the same three blocks. */
+const TIME_BLOCK_LABEL: Record<string, string> = {
+  '3-4': '3p–4p',
+  '4-5': '4p–5p',
+  '5-6': '5p–6p',
+}
 
 type Contact = {
   priority: number
@@ -103,6 +146,14 @@ const TONES: Record<Status, 'leaf' | 'sun' | 'berry' | 'coral' | 'neutral'> = {
  */
 function dismissalLabel(hour: number | null): string {
   return hour === null ? 'Enrolled' : `${hour}:00 PM`
+}
+
+/** "16:45" as "4:45p" — how the sheets have always written it. */
+function clock(value: string | null): string {
+  if (!value) return '—'
+  const [h, m] = value.split(':').map(Number)
+  const hour = h % 12 === 0 ? 12 : h % 12
+  return `${hour}:${String(m).padStart(2, '0')}${h < 12 ? 'a' : 'p'}`
 }
 
 /** The roster's own name order, which is how Heather reads her file. */
@@ -552,6 +603,246 @@ function EditChildForm({
   )
 }
 
+type ClassOption = {
+  id: number
+  name: string
+  day_of_week: string
+  start_time: string | null
+  end_time: string | null
+  active: boolean
+}
+
+/**
+ * One day's classes: current ones as removable chips, plus a picker to add
+ * another from that weekday's catalogue. More than one is a real case, not
+ * an edge one — R3/R4 chain a child through back-to-back classes on the same
+ * afternoon, so a single dropdown here would silently drop the second one
+ * for anybody already living that.
+ */
+function DayClassEditor({
+  day,
+  current,
+  saving,
+  onSave,
+  onCancel,
+}: {
+  day: string
+  current: DayClass[]
+  saving: boolean
+  onSave: (classIds: number[]) => void
+  onCancel: () => void
+}) {
+  const [ids, setIds] = useState<number[]>(current.map((c) => c.id))
+  const [adding, setAdding] = useState('')
+
+  const { data: options } = useQuery({
+    queryKey: ['admin', 'class-sessions', day],
+    queryFn: () => api<ClassOption[]>(`/api/admin/class-sessions?day=${day}`),
+  })
+
+  const available = (options ?? []).filter((o) => !ids.includes(o.id))
+  const byId = new Map((options ?? []).map((o) => [o.id, o]))
+  // A class the child is in that fell out of the catalogue since (archived)
+  // stays visible under its own name rather than turning into a bare number.
+  const label = (id: number) =>
+    byId.get(id)?.name ?? current.find((c) => c.id === id)?.name ?? `#${id}`
+
+  return (
+    <div className="mt-2 rounded-2xl bg-canvas-100 p-3">
+      <div className="mb-2 flex flex-wrap gap-1.5">
+        {ids.length === 0 && (
+          <span className="text-[0.82rem] font-medium text-ink-400">
+            No class — care all afternoon
+          </span>
+        )}
+        {ids.map((id) => (
+          <span
+            key={id}
+            className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-[0.78rem] font-bold text-ink-700 shadow-soft"
+          >
+            {label(id)}
+            <button
+              type="button"
+              aria-label={`Remove ${label(id)}`}
+              onClick={() => setIds((prev) => prev.filter((x) => x !== id))}
+              className="text-ink-400 hover:text-berry-600"
+            >
+              <X className="size-3.5" strokeWidth={2.6} />
+            </button>
+          </span>
+        ))}
+      </div>
+
+      {available.length > 0 && (
+        <div className="mb-2 flex items-center gap-1.5">
+          <select
+            value={adding}
+            onChange={(e) => setAdding(e.target.value)}
+            aria-label={`Add a class on ${day}`}
+            className="h-9 flex-1 rounded-full border-2 border-canvas-200 bg-white px-3 text-[0.85rem] font-semibold text-ink-800 outline-none focus:border-sky-500"
+          >
+            <option value="">Add a class…</option>
+            {available.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+                {o.start_time && ` (${clock(o.start_time)}–${clock(o.end_time)})`}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={!adding}
+            onClick={() => {
+              setIds((prev) => [...prev, Number(adding)])
+              setAdding('')
+            }}
+            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-700 disabled:opacity-40"
+          >
+            <Plus className="size-4" strokeWidth={2.6} />
+          </button>
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <Button size="sm" loading={saving} onClick={() => onSave(ids)}>
+          Save
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Classes come from class_enrollments and are editable here, one day at a
+ * time. The care room never is — see the note on `DayCare` above — it is
+ * shown as where the system would actually send this child, not as a field
+ * with a dropdown next to it.
+ */
+function WeeklySchedule({ child }: { child: ChildDetail }) {
+  const qc = useQueryClient()
+  const [editingDay, setEditingDay] = useState<string | null>(null)
+  const map = byDay(child.days)
+
+  const save = useMutation({
+    mutationFn: (days: { day: string; class_session_ids: number[] }[]) =>
+      api(`/api/admin/children/${child.id}`, { method: 'PUT', body: { days } }),
+    onSuccess: () => {
+      setEditingDay(null)
+      void qc.invalidateQueries({ queryKey: ['admin', 'child', String(child.id)] })
+      void qc.invalidateQueries({ queryKey: ['admin', 'children'] })
+    },
+  })
+
+  // Every currently-attending day travels along unchanged except the one
+  // being saved — the endpoint treats a day missing from this list as "no
+  // longer attending", so sending anything less would unenroll the rest.
+  function saveDay(day: string, classIds: number[]) {
+    save.mutate(
+      child.days.map((d) => ({
+        day: d.day,
+        class_session_ids: d.day === day ? classIds : d.classes.map((c) => c.id),
+      })),
+    )
+  }
+
+  return (
+    <Section title="Weekly schedule">
+      <div className="flex flex-col">
+        {WEEKDAYS.map((d) => {
+          const entry = map.get(d)
+          return (
+            <div
+              key={d}
+              className="border-b border-canvas-200 py-2.5 last:border-0"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[0.85rem] font-bold text-ink-500">
+                  {d}
+                </span>
+                <span className="text-right text-[0.9rem] font-semibold text-ink-900">
+                  {entry ? (
+                    dismissalLabel(entry.dismissal_time)
+                  ) : (
+                    <span className="font-medium text-ink-400">
+                      Not attending
+                    </span>
+                  )}
+                </span>
+              </div>
+
+              {entry && editingDay !== d && (
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  {entry.classes.length === 0 ? (
+                    <span className="text-[0.82rem] font-medium text-ink-400">
+                      No class — care all afternoon
+                    </span>
+                  ) : (
+                    entry.classes.map((cl) => (
+                      <span
+                        key={cl.id}
+                        className="rounded-full bg-canvas-100 px-2.5 py-1 text-[0.78rem] font-bold text-ink-700"
+                      >
+                        {cl.name}
+                        {cl.start_time &&
+                          ` · ${clock(cl.start_time)}–${clock(cl.end_time)}`}
+                      </span>
+                    ))
+                  )}
+                  <button
+                    type="button"
+                    aria-label={`Edit ${d}'s classes`}
+                    onClick={() => setEditingDay(d)}
+                    className="rounded-full p-1 text-ink-400 hover:bg-canvas-100 hover:text-ink-700"
+                  >
+                    <Pencil className="size-3.5" strokeWidth={2.4} />
+                  </button>
+                </div>
+              )}
+
+              {/* Where they'd actually wait, computed the same way Care Rooms
+                  computes it for everyone else — never an editable field. */}
+              {entry && entry.care.length > 0 && editingDay !== d && (
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[0.78rem] font-semibold text-ink-500">
+                  {entry.care.map((c) => (
+                    <span key={c.time_block}>
+                      {TIME_BLOCK_LABEL[c.time_block] ?? c.time_block} →{' '}
+                      {c.room_name ?? (
+                        <span className="font-bold text-berry-600">
+                          no room
+                        </span>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {entry && editingDay === d && (
+                <DayClassEditor
+                  day={d}
+                  current={entry.classes}
+                  saving={save.isPending}
+                  onSave={(ids) => saveDay(d, ids)}
+                  onCancel={() => setEditingDay(null)}
+                />
+              )}
+            </div>
+          )
+        })}
+      </div>
+      {save.isError && (
+        <p className="mt-2 text-[0.82rem] font-semibold text-berry-600">
+          {save.error instanceof ApiError
+            ? save.error.message
+            : 'Could not save that.'}
+        </p>
+      )}
+    </Section>
+  )
+}
+
 export function AdminChildProfile() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -601,7 +892,6 @@ export function AdminChildProfile() {
     )
   }
 
-  const map = byDay(c.days)
   const guardians = c.contacts.length
     ? c.contacts
     : [
@@ -693,24 +983,7 @@ export function AdminChildProfile() {
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Section title="Weekly schedule">
-          <div className="flex flex-col">
-            {WEEKDAYS.map((d) => {
-              const entry = map.get(d)
-              return (
-                <Row key={d} label={d}>
-                  {entry ? (
-                    dismissalLabel(entry.dismissal_time)
-                  ) : (
-                    <span className="font-medium text-ink-400">
-                      Not attending
-                    </span>
-                  )}
-                </Row>
-              )
-            })}
-          </div>
-        </Section>
+        <WeeklySchedule child={c} />
 
         <Section title="Guardians">
           <ul className="flex flex-col gap-3">
