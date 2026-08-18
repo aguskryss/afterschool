@@ -2038,7 +2038,12 @@ def parent_delete_makeup_class(entry_id):
 @jwt_required()
 def counselor_get_roster():
     claims = get_jwt()
-    if claims.get('role') != 'counselor':
+    # Also admin, who reads it through the same Pickup screen (see
+    # PickupRelease in web/) to release a child at the office rather than at a
+    # school gate. counselor_school_ids(db, admin_user_id, ...) finds no
+    # counselor_schools rows for an admin and returns None — "every school" —
+    # which is exactly right without any admin-specific branch here.
+    if claims.get('role') not in ('counselor', 'admin'):
         return jsonify({'error': 'Unauthorized'}), 403
 
     user_id = get_jwt_identity()
@@ -6701,8 +6706,8 @@ def admin_get_absences():
         db.close()
         return jsonify([])
     absences = db.execute("""
-        SELECT c.name as child_name, u.name as parent_name, s.name as school,
-               %s::text as absence_date
+        SELECT c.id as child_id, c.name as child_name, u.name as parent_name,
+               s.name as school, %s::text as absence_date
         FROM children c
         JOIN users u ON c.parent_id = u.id
         JOIN schools s ON c.school_id = s.id
@@ -6711,6 +6716,97 @@ def admin_get_absences():
     """, (date_str, list(absent_ids))).fetchall()
     db.close()
     return jsonify([dict(a) for a in absences])
+
+
+@app.route('/api/admin/absences', methods=['POST'])
+@jwt_required()
+def admin_mark_absence():
+    """Record an absence on a parent's behalf — a phone call, not a report.
+
+    Same effect as /api/parent/absences POST, and deliberately no signature or
+    confirmation step: unlike a release, nobody has to be handed anything
+    back, so there is no accountability gap for a write this reversible to
+    close. Scoped to the org by RLS on `children`, not by parent_id, since the
+    caller is staff rather than the family.
+    """
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    data = request.json or {}
+    child_id = data.get('child_id')
+    absence_date = data.get('date')
+    user_id = get_jwt_identity()
+
+    if not child_id or not absence_date:
+        return jsonify({'error': 'Missing child_id or date'}), 400
+    try:
+        absence_date = parse_date(absence_date)
+    except ValueError:
+        return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD.'}), 400
+
+    db = get_db()
+    child = db.execute("SELECT id FROM children WHERE id = %s", (child_id,)).fetchone()
+    if not child:
+        db.close()
+        return jsonify({'error': 'Child not found'}), 404
+
+    try:
+        # Same override as the parent's own POST: a one-off absence beats any
+        # prior "attending this day" exception for the same date.
+        db.execute(
+            "DELETE FROM absence_exceptions WHERE child_id = %s AND exception_date = %s",
+            (child_id, absence_date)
+        )
+        db.execute(
+            "INSERT INTO absences (child_id, absence_date, marked_by) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+            (child_id, absence_date, user_id)
+        )
+        db.commit()
+    except Exception as e:
+        db.close()
+        print(f"[ERROR] admin_mark_absence: {e}")
+        return jsonify({'error': 'Failed to mark absence'}), 400
+
+    db.close()
+    return jsonify({'message': 'Absence marked'})
+
+
+@app.route('/api/admin/absences', methods=['DELETE'])
+@jwt_required()
+def admin_remove_absence():
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    data = request.json or {}
+    child_id = data.get('child_id')
+    absence_date = data.get('date')
+    user_id = get_jwt_identity()
+
+    if not child_id or not absence_date:
+        return jsonify({'error': 'Missing child_id or date'}), 400
+    try:
+        absence_date = parse_date(absence_date)
+    except ValueError:
+        return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD.'}), 400
+
+    db = get_db()
+    child = db.execute("SELECT id FROM children WHERE id = %s", (child_id,)).fetchone()
+    if not child:
+        db.close()
+        return jsonify({'error': 'Child not found'}), 404
+
+    # Same as the parent's own DELETE: "remove" means "the child WILL attend
+    # this date", so a recurring rule for this weekday needs an exception too,
+    # not just deleting the one-off row.
+    db.execute("DELETE FROM absences WHERE child_id = %s AND absence_date = %s", (child_id, absence_date))
+    db.execute(
+        "INSERT INTO absence_exceptions (child_id, exception_date, marked_by) "
+        "VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+        (child_id, absence_date, user_id)
+    )
+    db.commit()
+    db.close()
+    return jsonify({'message': 'Absence removed'})
 
 # ─── LIVE HEADCOUNT ─────────────────────────────────────────────────────────
 # How many children are in the building right now, per school. Published on
@@ -7151,7 +7247,8 @@ def counselor_submit_attendance():
 @jwt_required()
 def counselor_get_attendance():
     claims = get_jwt()
-    if claims.get('role') != 'counselor':
+    # Also admin — see counselor_get_roster just above.
+    if claims.get('role') not in ('counselor', 'admin'):
         return jsonify({'error': 'Unauthorized'}), 403
 
     date_str = request.args.get('date', today_for_org())

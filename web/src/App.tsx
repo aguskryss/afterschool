@@ -19,7 +19,7 @@ import { ParentInbox } from '@/routes/parent/Inbox'
 import { ParentPhotos } from '@/routes/parent/Photos'
 import { CounselorToday } from '@/routes/counselor/Today'
 import { CounselorSchoolAttendance } from '@/routes/counselor/SchoolAttendance'
-import { CounselorPickup } from '@/routes/counselor/Pickup'
+import { PickupRelease } from '@/routes/counselor/Pickup'
 import { CounselorRoster } from '@/routes/counselor/Roster'
 import { CounselorSchedule } from '@/routes/counselor/Schedule'
 import { CounselorMyDay } from '@/routes/counselor/MyDay'
@@ -116,6 +116,10 @@ const ADMIN_ROUTES: [string, ReactNode][] = [
   ['/live-board', <ModuleGuard module="check_in_out"><AdminLiveBoard /></ModuleGuard>],
   ['/attendance', <AdminAttendance />],
   ['/pickup-log', <ModuleGuard module="secure_pickup"><AdminPickupLog /></ModuleGuard>],
+  // The live release itself, distinct from the log above (a report of
+  // releases already signed). Same screen the counselor uses at the door —
+  // see PickupRelease's own doc comment for why sharing it is safe.
+  ['/pickup-release', <ModuleGuard module="secure_pickup"><PickupRelease /></ModuleGuard>],
   ['/absences', <ModuleGuard module="absences"><AdminAbsences /></ModuleGuard>],
   ['/makeup', <ModuleGuard module="makeup_classes"><AdminMakeupRequests /></ModuleGuard>],
   ['/timeoff', <ModuleGuard module="time_off"><AdminTimeOff /></ModuleGuard>],
@@ -227,7 +231,7 @@ export default function App() {
               element={
                 <Guard allow={['counselor']}>
                   <ModuleGuard module="secure_pickup">
-                    <CounselorPickup />
+                    <PickupRelease />
                   </ModuleGuard>
                 </Guard>
               }

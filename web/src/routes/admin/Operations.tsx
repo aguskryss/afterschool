@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarDays, GraduationCap, School, UserRound } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
+import { notifyError } from '@/lib/confirm'
+import { matchesName } from '@/lib/roster'
 import { DataTable, type Column } from '@/components/DataTable'
 import { ExportButton } from '@/components/ExportButton'
 import { AddButton, DeletePerson, EditPersonButton } from '@/components/people'
@@ -266,10 +268,150 @@ export function AdminAttendance() {
 /* ── Absences ────────────────────────────────────────────────────────── */
 
 type AbsenceRow = {
+  child_id: number
   child_name: string
   parent_name: string
   school: string
   absence_date: string
+}
+
+type ChildOption = { id: number; name: string; school: string }
+
+/** Undoes one absence — "the child WILL attend this date" (same as the
+ * parent's own Remove), not a delete of a log entry. No confirm dialog: it is
+ * exactly as reversible as marking one in the first place. */
+function UndoAbsence({ childId, date }: { childId: number; date: string }) {
+  const qc = useQueryClient()
+  const remove = useMutation({
+    mutationFn: () =>
+      api('/api/admin/absences', {
+        method: 'DELETE',
+        body: { child_id: childId, date },
+      }),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: ['admin', 'absences', date] }),
+    onError: (e) =>
+      notifyError(
+        'Could not undo',
+        e instanceof ApiError ? e.message : undefined,
+      ),
+  })
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      loading={remove.isPending}
+      onClick={() => remove.mutate()}
+    >
+      Undo
+    </Button>
+  )
+}
+
+/**
+ * Recording an absence a parent called in rather than reported through the
+ * app. No signature or confirmation step, unlike releasing a child: nobody
+ * has to be handed anything back, and Undo above closes the only real risk —
+ * marking the wrong kid — in one tap.
+ */
+function MarkAbsent({ date }: { date: string }) {
+  const qc = useQueryClient()
+  const [query, setQuery] = useState('')
+  const [picked, setPicked] = useState<ChildOption | null>(null)
+
+  // The full active roster, fetched once and searched in memory — the same
+  // shape AdminConversations already reuses /api/admin/parents for.
+  const { data } = useQuery({
+    queryKey: ['admin', 'children', 'active-lite'],
+    queryFn: () =>
+      api<{ children: ChildOption[] }>('/api/admin/children?active=1'),
+    staleTime: 60_000,
+  })
+
+  const q = query.trim()
+  const matches = useMemo(
+    () =>
+      q
+        ? (data?.children ?? []).filter((c) => matchesName(c.name, q)).slice(0, 8)
+        : [],
+    [data, q],
+  )
+
+  const mark = useMutation({
+    mutationFn: (childId: number) =>
+      api('/api/admin/absences', {
+        method: 'POST',
+        body: { child_id: childId, date },
+      }),
+    onSuccess: () => {
+      setPicked(null)
+      setQuery('')
+      void qc.invalidateQueries({ queryKey: ['admin', 'absences', date] })
+    },
+    onError: (e) =>
+      notifyError(
+        'Could not mark absent',
+        e instanceof ApiError ? e.message : undefined,
+      ),
+  })
+
+  return (
+    <Card className="mb-4 p-3">
+      <p className="mb-2 text-[0.85rem] font-bold text-ink-700">
+        Mark someone absent
+      </p>
+      {picked ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[0.88rem] font-semibold text-ink-800">
+            {picked.name}
+            <span className="font-medium text-ink-400"> · {picked.school}</span>
+            {' — absent on '}
+            {date}
+          </span>
+          <Button
+            size="sm"
+            loading={mark.isPending}
+            onClick={() => mark.mutate(picked.id)}
+          >
+            Confirm
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setPicked(null)}>
+            Cancel
+          </Button>
+        </div>
+      ) : (
+        <div className="relative">
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search a child by name…"
+            aria-label="Search a child to mark absent"
+            className="h-10 w-full max-w-sm appearance-none rounded-full border-2 border-canvas-200 bg-white px-4 text-[0.9rem] font-medium text-ink-900 outline-none [&::-webkit-search-cancel-button]:appearance-none focus:border-sky-500"
+          />
+          {matches.length > 0 && (
+            <ul className="absolute z-10 mt-1 w-full max-w-sm overflow-hidden rounded-2xl border border-canvas-200 bg-white shadow-soft">
+              {matches.map((c) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPicked(c)
+                      setQuery('')
+                    }}
+                    className="flex w-full items-center justify-between px-4 py-2 text-left text-[0.88rem] font-medium transition-colors hover:bg-canvas-100"
+                  >
+                    <span className="font-bold text-ink-900">{c.name}</span>
+                    <span className="text-ink-400">{c.school}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </Card>
+  )
 }
 
 export function AdminAbsences() {
@@ -285,6 +427,13 @@ export function AdminAbsences() {
     { key: 'child_name', header: 'Child' },
     { key: 'parent_name', header: 'Parent' },
     { key: 'school', header: 'School' },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      value: () => '',
+      render: (r) => <UndoAbsence childId={r.child_id} date={date} />,
+    },
   ]
 
   return (
@@ -293,6 +442,7 @@ export function AdminAbsences() {
         Absences
       </h1>
       <DayPicker date={date} onChange={setDate} />
+      <MarkAbsent date={date} />
       <DataTable
         rows={rows}
         columns={columns}

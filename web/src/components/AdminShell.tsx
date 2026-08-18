@@ -28,6 +28,7 @@ import {
   ShieldCheck,
   Target,
   Upload,
+  UserCheck,
   UserRound,
   Users,
   X,
@@ -114,6 +115,10 @@ const GROUPS: { title: string; items: Item[] }[] = [
       { to: '/daily-board', label: 'Daily board', icon: ClipboardCheck, module: 'daily_ops' },
       { to: '/live-board', label: 'Live board', icon: Radio, module: 'check_in_out' },
       { to: '/attendance', label: 'Attendance', icon: GraduationCap },
+      // The live action, next to its own record: a parent who walks up to the
+      // office instead of a school-gate counselor still needs someone to take
+      // their signature.
+      { to: '/pickup-release', label: 'Release a child', icon: UserCheck, module: 'secure_pickup' },
       { to: '/pickup-log', label: 'Pickup record', icon: ShieldCheck, module: 'secure_pickup' },
       { to: '/absences', label: 'Absences', icon: CalendarDays, module: 'absences' },
       { to: '/makeup', label: 'Make-up classes', icon: Repeat2, module: 'makeup_classes' },

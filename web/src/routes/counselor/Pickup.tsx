@@ -94,8 +94,15 @@ function subtitle(child: Present, showSchool: boolean): string {
  *
  * The whole screen sits behind `secure_pickup` at the route, so the release
  * flow does not have to ask again.
+ *
+ * SHARED WITH THE ADMIN PORTAL. A parent sometimes walks up to the office
+ * instead of the school-gate counselor — someone still has to take the
+ * signature. Rather than a second implementation, App.tsx mounts this same
+ * component at /pickup-release under AdminShell; the data hooks below
+ * (useRoster, useAttendanceMarks) and ReleaseChild's own endpoints already
+ * accept an admin session, so nothing here has to know which portal it is in.
  */
-export function CounselorPickup() {
+export function PickupRelease() {
   const [query, setQuery] = useState('')
   const [openChild, setOpenChild] = useState<number | null>(null)
 
