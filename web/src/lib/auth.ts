@@ -34,6 +34,7 @@ export type ModuleKey =
   | 'check_in_out'
   | 'photos'
   | 'parent_messaging'
+  | 'staff_messaging'
   | 'late_arrivals'
   | 'daily_ops'
 

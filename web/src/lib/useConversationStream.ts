@@ -33,27 +33,47 @@ export type ConversationMessage = {
   created_at: string
 }
 
+export type StaffMessage = {
+  id: number
+  sender_role: 'counselor' | 'admin'
+  sender_name: string
+  body: string
+  created_at: string
+}
+
 type Event = {
   parent_id: number
   message: ConversationMessage
 }
 
+type StaffEvent = {
+  counselor_id: number
+  message: StaffMessage
+}
+
 export function useConversationStream({
   role,
   onMessage,
+  onStaffMessage,
   onResync,
   enabled = true,
 }: {
   role: 'parent' | 'admin'
   onMessage: (parentId: number, message: ConversationMessage) => void
+  /** Staff↔admin thread updates. Only the admin connection ever carries these
+   * (see /api/admin/conversations/stream) — parent's own feed never emits
+   * them, so passing this for role 'parent' is harmless but does nothing. */
+  onStaffMessage?: (counselorId: number, message: StaffMessage) => void
   onResync: () => void
   enabled?: boolean
 }) {
   // Held in refs so a caller passing inline closures — which is every caller —
   // doesn't tear the connection down and rebuild it on every render.
   const onMessageRef = useRef(onMessage)
+  const onStaffMessageRef = useRef(onStaffMessage)
   const onResyncRef = useRef(onResync)
   onMessageRef.current = onMessage
+  onStaffMessageRef.current = onStaffMessage
   onResyncRef.current = onResync
 
   useEffect(() => {
@@ -74,6 +94,15 @@ export function useConversationStream({
       } catch {
         // A malformed frame is not worth tearing the stream down for; the
         // next one will be fine, and a refresh still shows the thread.
+      }
+    })
+
+    source.addEventListener('staff-message', (e) => {
+      try {
+        const data = JSON.parse((e as MessageEvent).data) as StaffEvent
+        if (data?.message?.id) onStaffMessageRef.current?.(data.counselor_id, data.message)
+      } catch {
+        // Same reasoning as 'conversation-message' above.
       }
     })
 

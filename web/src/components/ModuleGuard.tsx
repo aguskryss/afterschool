@@ -32,7 +32,9 @@ export function ModuleGuard({
   unless,
   children,
 }: {
-  module?: ModuleKey
+  /** A single module, or a list — a list means "any one of these is enough",
+   * for a screen (like Conversations) that now serves more than one module. */
+  module?: ModuleKey | ModuleKey[]
   unless?: ModuleKey
   children: ReactNode
 }) {
@@ -59,7 +61,8 @@ export function ModuleGuard({
     )
   }
 
-  if (!module || hasModule(module)) return <>{children}</>
+  const allowed = !module || (Array.isArray(module) ? module.some(hasModule) : hasModule(module))
+  if (allowed) return <>{children}</>
 
   return (
     <div className="mx-auto w-full max-w-2xl">

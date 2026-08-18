@@ -751,6 +751,45 @@ def init_db():
         "ON parent_threads(last_message_at DESC NULLS LAST)"
     )
 
+    # ─── Two-way messaging, staff side (sql/51_add_staff_messaging.sql) ───
+    # The `staff_messaging` module. Same shape as parent_threads/thread_messages
+    # above — one thread per person, both directions — but the person is a
+    # counselor and the other side is always the admin. Its own pair of tables
+    # rather than a row in parent_threads: that one's sender_role CHECK only
+    # allows ('parent','admin'), and a counselor is neither, and folding staff
+    # into "parent" threads would let a counselor's messages surface on a
+    # screen built for families.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS staff_threads (
+            id SERIAL PRIMARY KEY,
+            counselor_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            last_message_at TIMESTAMP,
+            counselor_unread INTEGER NOT NULL DEFAULT 0,
+            admin_unread INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(counselor_id)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS staff_thread_messages (
+            id SERIAL PRIMARY KEY,
+            thread_id INTEGER NOT NULL REFERENCES staff_threads(id) ON DELETE CASCADE,
+            sender_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            sender_role TEXT NOT NULL CHECK(sender_role IN ('counselor', 'admin')),
+            sender_name TEXT NOT NULL,
+            body TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_staff_thread_messages_thread "
+        "ON staff_thread_messages(thread_id, created_at)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_staff_threads_recent "
+        "ON staff_threads(last_message_at DESC NULLS LAST)"
+    )
+
     # ─── Daily photos (sql/25_add_photos.sql) ─────────────────────────────
     # The `photos` module. The image bytes live in Supabase Storage (see
     # server/photo_storage.py); these rows hold the path and who is in the

@@ -24,6 +24,7 @@ import { CounselorRoster } from '@/routes/counselor/Roster'
 import { CounselorSchedule } from '@/routes/counselor/Schedule'
 import { CounselorMyDay } from '@/routes/counselor/MyDay'
 import { CounselorPhotos } from '@/routes/counselor/Photos'
+import { CounselorOffice } from '@/routes/counselor/Office'
 import { AdminDashboard } from '@/routes/admin/Dashboard'
 import { SuperadminOrganizations } from '@/routes/superadmin/Organizations'
 import {
@@ -120,7 +121,10 @@ const ADMIN_ROUTES: [string, ReactNode][] = [
   ['/timeoff', <ModuleGuard module="time_off"><AdminTimeOff /></ModuleGuard>],
   ['/messages', <ModuleGuard module="messages"><AdminMessages /></ModuleGuard>],
   ['/notifications', <AdminNotifications />],
-  ['/conversations', <ModuleGuard module="parent_messaging"><AdminConversations /></ModuleGuard>],
+  // Either module is enough: the screen now carries a Parents tab and a
+  // Staff tab, and an organization can buy one conversation channel without
+  // the other.
+  ['/conversations', <ModuleGuard module={['parent_messaging', 'staff_messaging']}><AdminConversations /></ModuleGuard>],
   ['/photos-admin', <ModuleGuard module="photos"><AdminPhotos /></ModuleGuard>],
   // Inverted on purpose: this is the legacy destructive importer, and it is
   // core rather than gated, so the server will not refuse it. See ModuleGuard.
@@ -241,6 +245,19 @@ export default function App() {
               element={
                 <Guard allow={['counselor']}>
                   <CounselorSchedule />
+                </Guard>
+              }
+            />
+            {/* Off the counselor's main nav (see CounselorShell) — this is
+                "things about me", like /schedule, so it is linked from
+                Account rather than given a rail destination of its own. */}
+            <Route
+              path="/office"
+              element={
+                <Guard allow={['counselor']}>
+                  <ModuleGuard module="staff_messaging">
+                    <CounselorOffice />
+                  </ModuleGuard>
                 </Guard>
               }
             />

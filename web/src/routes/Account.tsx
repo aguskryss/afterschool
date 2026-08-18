@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
-import { CalendarDays, ChevronRight, KeyRound, LogOut } from 'lucide-react'
+import { CalendarDays, ChevronRight, KeyRound, LogOut, MessagesSquare } from 'lucide-react'
 import { api } from '@/lib/api'
 import { hasModule, readSession } from '@/lib/auth'
 import { Avatar, Button, Card, Field, Pill } from '@/components/ui'
@@ -98,6 +98,26 @@ export function Account() {
             </Card>
           </Link>
         )}
+
+      {/* Same reasoning as My schedule above: this is a conversation with the
+          office about the counselor, not a place in today's work, so it lives
+          here rather than on the main rail. */}
+      {session?.role === 'counselor' && hasModule('staff_messaging') && (
+        <Link to="/office" className="mb-4 block">
+          <Card className="flex items-center gap-3 p-4 active:bg-canvas-100">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-500">
+              <MessagesSquare className="size-5" strokeWidth={2.1} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-bold text-ink-900">Message the office</p>
+              <p className="text-[0.85rem] font-medium text-ink-500">
+                A schedule question, a room, anything else
+              </p>
+            </div>
+            <ChevronRight className="size-5 shrink-0 text-ink-300" strokeWidth={2.4} />
+          </Card>
+        </Link>
+      )}
 
       <PushCard />
 

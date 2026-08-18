@@ -191,6 +191,7 @@ MODULES: dict[str, tuple[str, bool]] = {
     'check_in_out': ('Check-in / check-out times', False),
     'photos': ('Daily photos', False),
     'parent_messaging': ('Parent-to-admin messaging', False),
+    'staff_messaging': ('Staff-to-admin messaging', False),
     'late_arrivals': ('Parent-reported late arrivals', False),
 
     # The JCC that runs its afternoon off a hand-built 33-sheet workbook: its
@@ -286,6 +287,12 @@ MODULE_ROUTES: tuple[tuple[str, str], ...] = (
     ('/api/parent/conversation', 'parent_messaging'),
     ('/api/admin/conversations', 'parent_messaging'),
 
+    # The staff side of the same idea: a counselor can only write to the
+    # admin, never to a parent. Its own module — an organization can buy one
+    # conversation channel without the other.
+    ('/api/counselor/conversation', 'staff_messaging'),
+    ('/api/admin/staff-conversations', 'staff_messaging'),
+
     ('/api/counselor/photos', 'photos'),
     ('/api/parent/photos', 'photos'),
 
@@ -375,6 +382,8 @@ TENANT_TABLES = (
     'parent_messages',
     'parent_threads',
     'thread_messages',
+    'staff_threads',
+    'staff_thread_messages',
     'photos',
     'photo_tags',
     'counselor_time_off',

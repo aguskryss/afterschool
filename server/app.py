@@ -8606,6 +8606,250 @@ def admin_reply_conversation(parent_id):
     return jsonify(payload), 201
 
 
+# ─── STAFF MESSAGING ────────────────────────────────────────────────────────
+# The `staff_messaging` module. Same shape as parent_messaging above — one
+# thread per person, both directions — but the person is a counselor and the
+# other side is always the admin. A counselor can write to the admin; there is
+# no thread between two counselors and no way to reach a parent from here.
+
+def _thread_for_counselor(db, counselor_id, create=False):
+    row = db.execute(
+        "SELECT * FROM staff_threads WHERE counselor_id = %s", (counselor_id,)
+    ).fetchone()
+    if row or not create:
+        return row
+    # ON CONFLICT rather than a plain INSERT: two tabs sending the first
+    # message at once would otherwise race on the unique index.
+    return db.execute("""
+        INSERT INTO staff_threads (counselor_id) VALUES (%s)
+        ON CONFLICT (counselor_id) DO UPDATE SET counselor_id = excluded.counselor_id
+        RETURNING *
+    """, (counselor_id,)).fetchone()
+
+
+def _staff_thread_messages(db, thread_id):
+    rows = db.execute("""
+        SELECT id, sender_role, sender_name, body, created_at
+          FROM staff_thread_messages WHERE thread_id = %s
+         ORDER BY created_at, id
+    """, (thread_id,)).fetchall()
+    return [_message_json(r) for r in rows]
+
+
+@app.route('/api/counselor/conversation', methods=['GET'])
+@jwt_required()
+def counselor_get_conversation():
+    claims = get_jwt()
+    if claims.get('role') != 'counselor':
+        return jsonify({'error': 'Unauthorized'}), 403
+    user_id = get_jwt_identity()
+    db = get_db()
+    try:
+        thread = _thread_for_counselor(db, user_id)
+        if not thread:
+            return jsonify({'messages': [], 'unread': 0})
+        messages = _staff_thread_messages(db, thread['id'])
+        if thread['counselor_unread']:
+            db.execute(
+                "UPDATE staff_threads SET counselor_unread = 0 WHERE id = %s",
+                (thread['id'],),
+            )
+            db.commit()
+    finally:
+        db.close()
+    return jsonify({'messages': messages, 'unread': 0})
+
+
+@app.route('/api/counselor/conversation', methods=['POST'])
+@jwt_required()
+def counselor_send_message():
+    claims = get_jwt()
+    if claims.get('role') != 'counselor':
+        return jsonify({'error': 'Unauthorized'}), 403
+    user_id = get_jwt_identity()
+    sender_name = claims.get('name') or 'A staff member'
+    body = ((request.json or {}).get('body') or '').strip()
+    if not body:
+        return jsonify({'error': 'Write a message first'}), 400
+
+    db = get_db_transaction()
+    try:
+        thread = _thread_for_counselor(db, user_id, create=True)
+        msg = db.execute("""
+            INSERT INTO staff_thread_messages (thread_id, sender_id, sender_role, sender_name, body)
+            VALUES (%s, %s, 'counselor', %s, %s)
+            RETURNING id, sender_role, sender_name, body, created_at
+        """, (thread['id'], user_id, sender_name, body)).fetchone()
+        db.execute("""
+            UPDATE staff_threads
+               SET admin_unread = admin_unread + 1,
+                   last_message_at = CURRENT_TIMESTAMP
+             WHERE id = %s
+        """, (thread['id'],))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"[ERROR] counselor_send_message: {e}")
+        return jsonify({'error': 'Could not send the message'}), 500
+    finally:
+        db.close()
+
+    payload = _message_json(msg)
+    pickup_events.publish(
+        'staff-message',
+        {'counselor_id': int(user_id), 'message': payload},
+        current_org_id(),
+    )
+
+    db = get_db()
+    try:
+        admins = db.execute("SELECT id FROM users WHERE role = 'admin'").fetchall()
+    finally:
+        db.close()
+    for a in admins:
+        send_push_to_user_async(
+            a['id'], '💬 New staff message',
+            f'{sender_name}: {body[:80]}', '/app/conversations',
+        )
+    return jsonify(payload), 201
+
+
+@app.route('/api/admin/staff-conversations', methods=['GET'])
+@jwt_required()
+def admin_list_staff_conversations():
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    db = get_db()
+    try:
+        rows = db.execute("""
+            SELECT t.id, t.counselor_id, t.last_message_at, t.admin_unread,
+                   u.name AS counselor_name, u.email AS counselor_email,
+                   (SELECT body FROM staff_thread_messages m
+                     WHERE m.thread_id = t.id
+                     ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_body
+              FROM staff_threads t
+              JOIN users u ON u.id = t.counselor_id
+             ORDER BY t.last_message_at DESC NULLS LAST
+        """).fetchall()
+    finally:
+        db.close()
+    return jsonify([
+        {**dict(r), 'last_message_at': iso_utc(r['last_message_at'])}
+        for r in rows
+    ])
+
+
+@app.route('/api/admin/staff-conversations/unread-count', methods=['GET'])
+@jwt_required()
+def admin_staff_conversations_unread_count():
+    """How many staff messages nobody at the office has read yet.
+
+    Feeds the nav badge, same reason /api/admin/conversations/unread-count
+    does. Declared before /<int:counselor_id> for readability only — the int
+    converter would not match this path either way.
+    """
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    db = get_db()
+    try:
+        row = db.execute(
+            "SELECT COALESCE(SUM(admin_unread), 0) AS count FROM staff_threads"
+        ).fetchone()
+    finally:
+        db.close()
+    return jsonify({'count': int(row['count'] or 0)})
+
+
+@app.route('/api/admin/staff-conversations/<int:counselor_id>', methods=['GET'])
+@jwt_required()
+def admin_get_staff_conversation(counselor_id):
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    db = get_db()
+    try:
+        # Scoped to role = 'counselor' so an admin can't open a thread against
+        # a parent or another admin by guessing an id.
+        counselor = db.execute("""
+            SELECT id, name, email FROM users
+             WHERE id = %s AND role = 'counselor'
+        """, (counselor_id,)).fetchone()
+        if not counselor:
+            return jsonify({'error': 'Counselor not found'}), 404
+        thread = _thread_for_counselor(db, counselor_id)
+        messages = _staff_thread_messages(db, thread['id']) if thread else []
+        if thread and thread['admin_unread']:
+            db.execute(
+                "UPDATE staff_threads SET admin_unread = 0 WHERE id = %s",
+                (thread['id'],),
+            )
+            db.commit()
+    finally:
+        db.close()
+    return jsonify({
+        'counselor': {
+            'id': counselor['id'], 'name': counselor['name'], 'email': counselor['email'],
+        },
+        'messages': messages,
+    })
+
+
+@app.route('/api/admin/staff-conversations/<int:counselor_id>', methods=['POST'])
+@jwt_required()
+def admin_reply_staff_conversation(counselor_id):
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    claims = get_jwt()
+    user_id = get_jwt_identity()
+    sender_name = claims.get('name') or 'The office'
+    body = ((request.json or {}).get('body') or '').strip()
+    if not body:
+        return jsonify({'error': 'Write a message first'}), 400
+
+    db = get_db_transaction()
+    try:
+        counselor = db.execute(
+            "SELECT id FROM users WHERE id = %s AND role = 'counselor'", (counselor_id,)
+        ).fetchone()
+        if not counselor:
+            db.rollback()
+            return jsonify({'error': 'Counselor not found'}), 404
+        thread = _thread_for_counselor(db, counselor_id, create=True)
+        msg = db.execute("""
+            INSERT INTO staff_thread_messages (thread_id, sender_id, sender_role, sender_name, body)
+            VALUES (%s, %s, 'admin', %s, %s)
+            RETURNING id, sender_role, sender_name, body, created_at
+        """, (thread['id'], user_id, sender_name, body)).fetchone()
+        db.execute("""
+            UPDATE staff_threads
+               SET counselor_unread = counselor_unread + 1,
+                   last_message_at = CURRENT_TIMESTAMP
+             WHERE id = %s
+        """, (thread['id'],))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"[ERROR] admin_reply_staff_conversation: {e}")
+        return jsonify({'error': 'Could not send the message'}), 500
+    finally:
+        db.close()
+
+    payload = _message_json(msg)
+    pickup_events.publish(
+        'staff-message',
+        {'counselor_id': counselor_id, 'message': payload},
+        current_org_id(),
+    )
+    # Direct push rather than notify_parent(): that helper is specifically for
+    # a parent recipient's notification preferences (CLAUDE.md §3), and a
+    # counselor is not one. Mirrors the direct send counselor_send_message
+    # above already uses for the admin side of this same conversation.
+    send_push_to_user_async(
+        counselor_id, '💬 Message from the office',
+        body[:80], '/app/office',
+    )
+    return jsonify(payload), 201
+
+
 # ─── DAILY PHOTOS ───────────────────────────────────────────────────────────
 # The `photos` module. Counselors upload and tag; each parent sees only the
 # photos their own children appear in.
@@ -10583,7 +10827,11 @@ def admin_conversations_stream():
     g.organization_id = org_id
     g.is_superadmin = False
 
-    if not tenancy.module_enabled(_request_modules(), 'parent_messaging'):
+    # Either conversation module is enough to open this connection: it now
+    # carries both parent and staff threads, and an organization can buy one
+    # without the other.
+    if not (tenancy.module_enabled(_request_modules(), 'parent_messaging')
+            or tenancy.module_enabled(_request_modules(), 'staff_messaging')):
         return jsonify({'error': 'This feature is not enabled for your organization'}), 403
 
     q = pickup_events.subscribe(org_id)
@@ -10603,7 +10851,7 @@ def admin_conversations_stream():
                 # This organization's bus also carries pickups and headcounts.
                 # They keep the connection warm as a heartbeat rather than
                 # being forwarded to a screen that has no use for them.
-                if event.get('type') not in ('conversation-message', 'resync'):
+                if event.get('type') not in ('conversation-message', 'staff-message', 'resync'):
                     yield pickup_events.format_sse({'type': 'heartbeat', 'data': {}})
                     continue
                 yield pickup_events.format_sse(event)

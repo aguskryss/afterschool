@@ -41,8 +41,10 @@ type Item = {
   to: string
   label: string
   icon: ComponentType<{ className?: string; strokeWidth?: number }>
-  /** Hidden when the organization doesn't have this module enabled. */
-  module?: ModuleKey
+  /** Hidden when the organization doesn't have this module enabled. A list
+   * means "any one of these is enough" — see Conversations, which now serves
+   * two modules. */
+  module?: ModuleKey | ModuleKey[]
   /**
    * Hidden when the organization *does* have this module — for a screen that a
    * module replaces rather than adds to. The route stays reachable by URL; only
@@ -127,7 +129,7 @@ const GROUPS: { title: string; items: Item[] }[] = [
         to: '/conversations',
         label: 'Conversations',
         icon: MessagesSquare,
-        module: 'parent_messaging',
+        module: ['parent_messaging', 'staff_messaging'],
       },
       // No module of its own: these switches govern events from several
       // modules at once, and a JCC with broadcasts off still notifies about
@@ -187,7 +189,9 @@ function MakeupBadge() {
  * pickup, and grape is already the messaging colour on the thread itself.
  */
 function ConversationsBadge() {
-  const { data } = useQuery({
+  // Two independent counts, one badge — Conversations now carries a Parents
+  // tab and a Staff tab, each behind its own module, and either can be off.
+  const { data: parents } = useQuery({
     queryKey: ['admin', 'conversations', 'unread'],
     queryFn: () =>
       api<{ count: number }>('/api/admin/conversations/unread-count'),
@@ -197,10 +201,18 @@ function ConversationsBadge() {
     enabled: hasModule('parent_messaging'),
     refetchInterval: 60_000,
   })
-  if (!data?.count) return null
+  const { data: staff } = useQuery({
+    queryKey: ['admin', 'staff-conversations', 'unread'],
+    queryFn: () =>
+      api<{ count: number }>('/api/admin/staff-conversations/unread-count'),
+    enabled: hasModule('staff_messaging'),
+    refetchInterval: 60_000,
+  })
+  const count = (parents?.count ?? 0) + (staff?.count ?? 0)
+  if (!count) return null
   return (
     <span className="ml-auto rounded-full bg-grape-500 px-2 py-0.5 text-[0.7rem] font-extrabold text-white">
-      {data.count}
+      {count}
     </span>
   )
 }
@@ -217,7 +229,10 @@ function NavList({ isSuper, onNavigate }: { isSuper?: boolean; onNavigate?: () =
             {group.items
               .filter(
                 (item) =>
-                  (!item.module || hasModule(item.module)) &&
+                  (!item.module ||
+                    (Array.isArray(item.module)
+                      ? item.module.some(hasModule)
+                      : hasModule(item.module))) &&
                   (!item.unless || !hasModule(item.unless)),
               )
               .map(({ to, label, icon: Icon }) => (

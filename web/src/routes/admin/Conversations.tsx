@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { hasModule } from '@/lib/auth'
 import { Avatar, Button, Card, EmptyState, Pill, Skeleton } from '@/components/ui'
 import { ResendInvite } from '@/components/people'
 import { matchesName } from '@/lib/roster'
@@ -76,6 +77,31 @@ type FamilyDetail = {
   other_contacts: { name: string; phone: string | null; email: string | null }[]
   messages: ThreadMessage[]
 }
+
+/* ── Staff conversations: same shape, a much shorter list ─────────────── */
+
+type StaffThread = {
+  id: number
+  counselor_id: number
+  counselor_name: string
+  counselor_email: string
+  last_message_at: string | null
+  last_body: string | null
+  admin_unread: number
+}
+
+type StaffMessage = {
+  id: number
+  sender_role: 'counselor' | 'admin'
+  sender_name: string
+  body: string
+  created_at: string
+}
+
+type CounselorRow = { id: number; name: string; email: string }
+
+/** A counselor plus the thread they may or may not already have. */
+type StaffPerson = CounselorRow & { thread: StaffThread | null }
 
 const MAX_ROWS = 40
 
@@ -416,23 +442,215 @@ function Conversation({ parentId }: { parentId: number }) {
   )
 }
 
+/* ── One counselor in the list ─────────────────────────────────────────── */
+
+function StaffRow({
+  person,
+  selected,
+  onSelect,
+}: {
+  person: StaffPerson
+  selected: boolean
+  onSelect: () => void
+}) {
+  const t = person.thread
+  return (
+    <li>
+      <button
+        type="button"
+        aria-current={selected}
+        onClick={onSelect}
+        className={`flex w-full items-start gap-3 px-4 py-3 text-left transition-colors ${
+          selected ? 'bg-grape-50' : 'hover:bg-canvas-100'
+        }`}
+      >
+        <Avatar name={person.name} id={person.id} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-bold text-ink-900">{person.name}</p>
+          <p className="truncate text-[0.82rem] font-medium text-ink-500">
+            {t ? (t.last_body ?? 'No messages') : person.email}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          {t ? (
+            <>
+              <span className="text-[0.72rem] font-semibold text-ink-400">
+                {when(t.last_message_at)}
+              </span>
+              {t.admin_unread > 0 && (
+                <span className="inline-flex min-w-5 justify-center rounded-full bg-grape-500 px-1.5 text-[0.7rem] font-extrabold text-white">
+                  {t.admin_unread}
+                </span>
+              )}
+            </>
+          ) : (
+            <span className="text-[0.72rem] font-extrabold text-grape-600">
+              New
+            </span>
+          )}
+        </div>
+      </button>
+    </li>
+  )
+}
+
+/* ── One conversation with a counselor ───────────────────────────────── */
+
+function StaffConversation({ counselorId }: { counselorId: number }) {
+  const qc = useQueryClient()
+  const [body, setBody] = useState('')
+  const endRef = useRef<HTMLDivElement>(null)
+
+  const { data, isPending, isSuccess } = useQuery({
+    queryKey: ['admin', 'staff-conversations', counselorId],
+    queryFn: () =>
+      api<{ counselor: CounselorRow; messages: StaffMessage[] }>(
+        `/api/admin/staff-conversations/${counselorId}`,
+      ),
+  })
+
+  const send = useMutation({
+    mutationFn: () =>
+      api(`/api/admin/staff-conversations/${counselorId}`, {
+        method: 'POST',
+        body: { body },
+      }),
+    onSuccess: () => {
+      setBody('')
+      void qc.invalidateQueries({ queryKey: ['admin', 'staff-conversations'] })
+    },
+  })
+
+  const messages = data?.messages ?? []
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [messages.length])
+
+  // Same reasoning as Conversation above: the GET clears admin_unread
+  // server-side, so the list pill and the nav badge are stale until both keys
+  // are invalidated.
+  useEffect(() => {
+    if (!isSuccess) return
+    void qc.invalidateQueries({ queryKey: ['admin', 'staff-conversations'], exact: true })
+    void qc.invalidateQueries({ queryKey: ['admin', 'staff-conversations', 'unread'] })
+  }, [isSuccess, counselorId, qc])
+
+  if (isPending) return <Skeleton className="h-64" />
+  if (!data)
+    return (
+      <EmptyState
+        title="Could not load this conversation"
+        body="Refresh the page and try again."
+      />
+    )
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="mb-3 flex items-start gap-3 border-b border-canvas-200 pb-3">
+        <Avatar name={data.counselor.name} id={data.counselor.id} size="lg" />
+        <div className="min-w-0 flex-1">
+          <p className="text-lg font-extrabold text-ink-900">{data.counselor.name}</p>
+          <a
+            href={`mailto:${data.counselor.email}`}
+            className="inline-flex items-center gap-1 text-[0.82rem] font-semibold text-ink-500 hover:text-ink-800"
+          >
+            <Mail className="size-3.5" strokeWidth={2.4} />
+            {data.counselor.email}
+          </a>
+        </div>
+      </div>
+
+      <div className="mb-3 flex flex-1 flex-col gap-2 overflow-y-auto">
+        {messages.length === 0 ? (
+          <EmptyState
+            icon={<MessagesSquare className="size-7" strokeWidth={1.8} />}
+            title="No messages yet"
+            body="Whatever you write will be the first thing they hear from the office here."
+          />
+        ) : (
+          messages.map((m) => {
+            const mine = m.sender_role === 'admin'
+            return (
+              <div
+                key={m.id}
+                className={`max-w-[80%] rounded-3xl px-4 py-2.5 ${
+                  mine
+                    ? 'self-end rounded-br-lg bg-grape-500 text-white'
+                    : 'self-start rounded-bl-lg bg-canvas-100 text-ink-900'
+                }`}
+              >
+                <p className="text-[0.92rem] font-medium whitespace-pre-wrap">
+                  {m.body}
+                </p>
+                <p
+                  className={`mt-0.5 text-[0.7rem] font-semibold ${
+                    mine ? 'text-white/70' : 'text-ink-400'
+                  }`}
+                >
+                  {m.sender_name} · {when(m.created_at)}
+                </p>
+              </div>
+            )
+          })
+        )}
+        <div ref={endRef} />
+      </div>
+
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (body.trim()) send.mutate()
+        }}
+        className="flex items-end gap-2"
+      >
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          rows={2}
+          placeholder={
+            messages.length ? 'Reply…' : `Write to ${data.counselor.name}…`
+          }
+          aria-label={messages.length ? 'Reply' : 'Write the first message'}
+          className="min-w-0 flex-1 resize-none rounded-2xl border border-canvas-200 bg-white px-4 py-2.5 text-[0.92rem] font-medium text-ink-900 outline-none focus:border-grape-500"
+        />
+        <Button type="submit" loading={send.isPending} disabled={!body.trim()}>
+          <Send className="size-4" strokeWidth={2.4} />
+          Send
+        </Button>
+      </form>
+    </div>
+  )
+}
+
 /**
- * Conversations with families.
+ * Conversations — with families, and (module permitting) with staff.
  *
  * List on the left, thread on the right — the shape every mail client uses,
  * and the reason this is its own screen rather than a tab inside Messages:
- * that one composes a broadcast to everyone, this one answers one family.
+ * that one composes a broadcast to everyone, this one answers one person.
  *
  * The search box sits above the list and is always mounted, including when
  * there is not a single thread yet: the office needs to be able to open a
  * conversation, not only answer one, and /api/admin/conversations can only
  * ever return families who wrote first.
+ *
+ * Parents and staff are two tabs on one screen rather than two screens,
+ * mirroring how ParentInbox puts Announcements and Office side by side: an
+ * admin answering messages is doing one job, and the module that happens to
+ * gate each half is not something they should have to navigate around.
  */
 export function AdminConversations() {
   const [selected, setSelected] = useState<number | null>(null)
   const [query, setQuery] = useState('')
+  const [selectedStaff, setSelectedStaff] = useState<number | null>(null)
 
   const qc = useQueryClient()
+
+  const parentsOn = hasModule('parent_messaging')
+  const staffOn = hasModule('staff_messaging')
+  const bothOn = parentsOn && staffOn
+  const [tab, setTab] = useState<'parents' | 'staff'>(parentsOn ? 'parents' : 'staff')
 
   const { data: threads, isPending } = useQuery({
     queryKey: ['admin', 'conversations'],
@@ -442,23 +660,70 @@ export function AdminConversations() {
     // connection dropped and EventSource has not reconnected yet, which is
     // silent from in here. A minute of staleness is the worst case instead of
     // the normal one.
+    enabled: parentsOn,
     refetchInterval: 60_000,
   })
 
-  // One invalidation covers the list, whichever thread is open, and the unread
-  // badge: react-query matches by key prefix, and all three start with
-  // ['admin', 'conversations'].
+  const { data: staffThreads, isPending: staffPending } = useQuery({
+    queryKey: ['admin', 'staff-conversations'],
+    queryFn: () => api<StaffThread[]>('/api/admin/staff-conversations'),
+    enabled: staffOn,
+    refetchInterval: 60_000,
+  })
+
+  // One invalidation covers the list, whichever thread is open, and the
+  // unread badge: react-query matches by key prefix, and all three start with
+  // the same two-element key.
   const refetch = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ['admin', 'conversations'] })
   }, [qc])
-  useConversationStream({ role: 'admin', onMessage: refetch, onResync: refetch })
+  const refetchStaff = useCallback(() => {
+    void qc.invalidateQueries({ queryKey: ['admin', 'staff-conversations'] })
+  }, [qc])
+  useConversationStream({
+    role: 'admin',
+    onMessage: refetch,
+    onStaffMessage: refetchStaff,
+    onResync: () => {
+      refetch()
+      refetchStaff()
+    },
+  })
 
   // Core route, no module of its own, and the same key AdminParents uses — so
   // walking over from People costs nothing.
   const { data: parents, isPending: parentsPending } = useQuery({
     queryKey: ['admin', 'parents'],
     queryFn: () => api<ParentRow[]>('/api/admin/parents'),
+    enabled: parentsOn,
   })
+
+  // Same idea for staff: /api/admin/counselors is core, and reusing it here
+  // is what lets the office start a conversation with a counselor who has
+  // never written in, not just answer one who already has.
+  const { data: counselors, isPending: counselorsPending } = useQuery({
+    queryKey: ['admin', 'counselors'],
+    queryFn: () => api<CounselorRow[]>('/api/admin/counselors'),
+    enabled: staffOn,
+  })
+
+  const openStaff = useMemo<StaffPerson[]>(
+    () =>
+      (staffThreads ?? []).map((t) => ({
+        id: t.counselor_id,
+        name: t.counselor_name,
+        email: t.counselor_email,
+        thread: t,
+      })),
+    [staffThreads],
+  )
+
+  const newStaff = useMemo<StaffPerson[]>(() => {
+    const withThread = new Set(openStaff.map((s) => s.id))
+    return (counselors ?? [])
+      .filter((c) => !withThread.has(c.id))
+      .map((c) => ({ ...c, thread: null }))
+  }, [openStaff, counselors])
 
   const parentById = useMemo(
     () => new Map((parents ?? []).map((p) => [p.id, p])),
@@ -523,79 +788,166 @@ export function AdminConversations() {
     />
   )
 
+  const staffRow = (s: StaffPerson) => (
+    <StaffRow
+      key={s.id}
+      person={s}
+      selected={selectedStaff === s.id}
+      onSelect={() => setSelectedStaff(s.id)}
+    />
+  )
+
   return (
     <div className="mx-auto w-full max-w-[1800px]">
-      <h1 className="mb-6 text-[1.75rem] font-extrabold tracking-tight text-ink-900">
+      <h1 className="mb-4 text-[1.75rem] font-extrabold tracking-tight text-ink-900">
         Conversations
       </h1>
 
-      <div className="grid gap-4 lg:grid-cols-[23rem_1fr]">
-        <Card className="overflow-hidden">
-          <div className="border-b border-canvas-200 p-3">
-            <SearchBox value={query} onChange={setQuery} />
-          </div>
+      {bothOn && (
+        <div
+          role="tablist"
+          aria-label="Conversation sections"
+          className="mb-4 flex w-fit rounded-full bg-canvas-100 p-1"
+        >
+          {(
+            [
+              ['parents', 'Parents'],
+              ['staff', 'Staff'],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              role="tab"
+              aria-selected={tab === key}
+              onClick={() => setTab(key)}
+              className={`rounded-full px-4 py-1.5 text-[0.85rem] font-bold transition ${
+                tab === key ? 'bg-white text-ink-900 shadow-soft' : 'text-ink-500'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
-          {isPending || parentsPending ? (
-            <div className="p-4">
-              <Skeleton className="h-40" />
+      {(bothOn ? tab === 'parents' : parentsOn) && (
+        <div className="grid gap-4 lg:grid-cols-[23rem_1fr]">
+          <Card className="overflow-hidden">
+            <div className="border-b border-canvas-200 p-3">
+              <SearchBox value={query} onChange={setQuery} />
             </div>
-          ) : q ? (
-            hits.length === 0 ? (
+
+            {isPending || parentsPending ? (
+              <div className="p-4">
+                <Skeleton className="h-40" />
+              </div>
+            ) : q ? (
+              hits.length === 0 ? (
+                <EmptyState
+                  title="No families match"
+                  body="Try a first name, a last name, or an email."
+                />
+              ) : (
+                <div className="max-h-[34rem] overflow-y-auto">
+                  {shownThreads.length > 0 && (
+                    <>
+                      <SectionLabel>Conversations</SectionLabel>
+                      <ul className="divide-y divide-canvas-200">
+                        {shownThreads.map(row)}
+                      </ul>
+                    </>
+                  )}
+                  {shownNew.length > 0 && (
+                    <>
+                      <SectionLabel>Start a new conversation</SectionLabel>
+                      <ul className="divide-y divide-canvas-200">
+                        {shownNew.map(row)}
+                      </ul>
+                    </>
+                  )}
+                  {hidden > 0 && (
+                    <p className="px-4 py-3 text-[0.8rem] font-semibold text-ink-400">
+                      Keep typing — {hidden} more{' '}
+                      {hidden === 1 ? 'family matches' : 'families match'}, not shown.
+                    </p>
+                  )}
+                </div>
+              )
+            ) : open.length === 0 ? (
               <EmptyState
-                title="No families match"
-                body="Try a first name, a last name, or an email."
+                icon={<MessagesSquare className="size-7" strokeWidth={1.8} />}
+                title="No conversations yet"
+                body="Search a child or a parent above to start one."
               />
             ) : (
               <div className="max-h-[34rem] overflow-y-auto">
-                {shownThreads.length > 0 && (
+                <ul className="divide-y divide-canvas-200">{open.map(row)}</ul>
+              </div>
+            )}
+          </Card>
+
+          <Card className="min-h-[24rem] p-4">
+            {selected === null ? (
+              <EmptyState
+                icon={<MessagesSquare className="size-7" strokeWidth={1.8} />}
+                title="Pick a conversation"
+                body="Choose a family on the left, or search for one to write to first."
+              />
+            ) : (
+              <Conversation parentId={selected} />
+            )}
+          </Card>
+        </div>
+      )}
+
+      {(bothOn ? tab === 'staff' : staffOn) && (
+        <div className="grid gap-4 lg:grid-cols-[23rem_1fr]">
+          <Card className="overflow-hidden">
+            {staffPending || counselorsPending ? (
+              <div className="p-4">
+                <Skeleton className="h-40" />
+              </div>
+            ) : openStaff.length === 0 && newStaff.length === 0 ? (
+              <EmptyState
+                icon={<MessagesSquare className="size-7" strokeWidth={1.8} />}
+                title="No counselors yet"
+                body="Once counselors are on the roster, you can message them here."
+              />
+            ) : (
+              <div className="max-h-[34rem] overflow-y-auto">
+                {openStaff.length > 0 && (
                   <>
                     <SectionLabel>Conversations</SectionLabel>
                     <ul className="divide-y divide-canvas-200">
-                      {shownThreads.map(row)}
+                      {openStaff.map(staffRow)}
                     </ul>
                   </>
                 )}
-                {shownNew.length > 0 && (
+                {newStaff.length > 0 && (
                   <>
                     <SectionLabel>Start a new conversation</SectionLabel>
                     <ul className="divide-y divide-canvas-200">
-                      {shownNew.map(row)}
+                      {newStaff.map(staffRow)}
                     </ul>
                   </>
                 )}
-                {hidden > 0 && (
-                  <p className="px-4 py-3 text-[0.8rem] font-semibold text-ink-400">
-                    Keep typing — {hidden} more{' '}
-                    {hidden === 1 ? 'family matches' : 'families match'}, not shown.
-                  </p>
-                )}
               </div>
-            )
-          ) : open.length === 0 ? (
-            <EmptyState
-              icon={<MessagesSquare className="size-7" strokeWidth={1.8} />}
-              title="No conversations yet"
-              body="Search a child or a parent above to start one."
-            />
-          ) : (
-            <div className="max-h-[34rem] overflow-y-auto">
-              <ul className="divide-y divide-canvas-200">{open.map(row)}</ul>
-            </div>
-          )}
-        </Card>
+            )}
+          </Card>
 
-        <Card className="min-h-[24rem] p-4">
-          {selected === null ? (
-            <EmptyState
-              icon={<MessagesSquare className="size-7" strokeWidth={1.8} />}
-              title="Pick a conversation"
-              body="Choose a family on the left, or search for one to write to first."
-            />
-          ) : (
-            <Conversation parentId={selected} />
-          )}
-        </Card>
-      </div>
+          <Card className="min-h-[24rem] p-4">
+            {selectedStaff === null ? (
+              <EmptyState
+                icon={<MessagesSquare className="size-7" strokeWidth={1.8} />}
+                title="Pick a conversation"
+                body="Choose a counselor on the left to write to them."
+              />
+            ) : (
+              <StaffConversation counselorId={selectedStaff} />
+            )}
+          </Card>
+        </div>
+      )}
     </div>
   )
 }
