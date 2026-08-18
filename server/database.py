@@ -348,6 +348,30 @@ def init_db():
     _add_check(cur, 'children', 'children_arrival_mode_check',
                "arrival_mode IS NULL OR arrival_mode IN ('bus','dropoff')")
 
+    # ─── Private admin notes (sql/53_add_child_notes.sql) ─────────────────
+    # Deliberately not a column on `children`: the existing `notes` column
+    # already rides along in /api/counselor/roster's SELECT, so anything
+    # written there is one future counselor screen away from being visible
+    # to staff. Its own table is never selected into a counselor- or
+    # parent-facing response anywhere in app.py — every route reading or
+    # writing it is require_admin() — which is what makes "admin-only" a
+    # property of the schema rather than a habit every future query has to
+    # remember.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS child_notes (
+            id SERIAL PRIMARY KEY,
+            child_id INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+            author_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            author_name TEXT NOT NULL,
+            body TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_child_notes_child "
+        "ON child_notes(child_id, created_at DESC)"
+    )
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS registrations (
             id SERIAL PRIMARY KEY,

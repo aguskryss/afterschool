@@ -357,6 +357,7 @@ TENANT_TABLES = (
     'counselor_schools',
     'counselor_school_changes',
     'children',
+    'child_notes',
     'registrations',
     'absences',
     'recurring_absences',

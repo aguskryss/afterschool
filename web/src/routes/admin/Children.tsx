@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
   Baby,
+  Lock,
   Mail,
   Pencil,
   Phone,
@@ -842,6 +843,143 @@ function WeeklySchedule({ child }: { child: ChildDetail }) {
   )
 }
 
+/* ── Private admin notes ─────────────────────────────────────────────── */
+
+type ChildNote = {
+  id: number
+  author_name: string
+  body: string
+  created_at: string
+}
+
+function when(iso: string): string {
+  const d = new Date(iso)
+  const days = Math.floor((Date.now() - d.getTime()) / 86_400_000)
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  if (days === 0) return `Today, ${time}`
+  if (days === 1) return `Yesterday, ${time}`
+  return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${time}`
+}
+
+/**
+ * A running log, not one editable box — who wrote it and when matters as
+ * much as the text, the same reason every other record in this app (an
+ * absence, a release, a staff message) keeps who and when rather than just a
+ * current value. Backed by its own table (child_notes), never `children.notes`
+ * — see sql/53_add_child_notes.sql for why that distinction is the feature.
+ */
+function ChildNotes({ childId }: { childId: number }) {
+  const qc = useQueryClient()
+  const [body, setBody] = useState('')
+  const notesKey = ['admin', 'child', String(childId), 'notes']
+
+  const { data: notes, isPending } = useQuery({
+    queryKey: notesKey,
+    queryFn: () => api<ChildNote[]>(`/api/admin/children/${childId}/notes`),
+  })
+
+  const add = useMutation({
+    mutationFn: () =>
+      api(`/api/admin/children/${childId}/notes`, {
+        method: 'POST',
+        body: { body },
+      }),
+    onSuccess: () => {
+      setBody('')
+      void qc.invalidateQueries({ queryKey: notesKey })
+    },
+    onError: (e) =>
+      notifyError(
+        'Could not save that note',
+        e instanceof ApiError ? e.message : undefined,
+      ),
+  })
+
+  const remove = useMutation({
+    mutationFn: (noteId: number) =>
+      api(`/api/admin/children/${childId}/notes/${noteId}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: notesKey }),
+  })
+
+  return (
+    <Card className="mb-4 p-5">
+      <div className="mb-1 flex items-center gap-2">
+        <Lock className="size-4 text-ink-400" strokeWidth={2.2} />
+        <h2 className="text-[1.05rem] font-extrabold text-ink-900">
+          Private notes
+        </h2>
+      </div>
+      <p className="mb-3 text-[0.8rem] font-medium text-ink-400">
+        Only admins see this — never counselors or parents.
+      </p>
+
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (body.trim()) add.mutate()
+        }}
+        className="mb-4 flex items-end gap-2"
+      >
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          rows={2}
+          placeholder="Add a note…"
+          aria-label="Add a private note"
+          className="min-w-0 flex-1 resize-none rounded-2xl border border-canvas-200 bg-white px-4 py-2.5 text-[0.9rem] font-medium text-ink-900 outline-none focus:border-sky-500"
+        />
+        <Button
+          type="submit"
+          size="sm"
+          loading={add.isPending}
+          disabled={!body.trim()}
+        >
+          Add
+        </Button>
+      </form>
+
+      {isPending ? (
+        <Skeleton className="h-16" />
+      ) : !notes?.length ? (
+        <p className="text-[0.88rem] font-medium text-ink-400">
+          Nothing written yet.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {notes.map((n) => (
+            <li
+              key={n.id}
+              className="flex items-start justify-between gap-3 border-b border-canvas-200 pb-3 last:border-0 last:pb-0"
+            >
+              <div className="min-w-0">
+                <p className="text-[0.9rem] font-medium whitespace-pre-wrap text-ink-800">
+                  {n.body}
+                </p>
+                <p className="mt-1 text-[0.76rem] font-semibold text-ink-400">
+                  {n.author_name} · {when(n.created_at)}
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Delete note"
+                disabled={remove.isPending}
+                onClick={async () => {
+                  if (await confirmDelete('this note')) remove.mutate(n.id)
+                }}
+                className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-300 transition-colors hover:bg-berry-50 hover:text-berry-500 disabled:opacity-40"
+              >
+                <Trash2 className="size-3.5" strokeWidth={2.1} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  )
+}
+
 export function AdminChildProfile() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -1074,6 +1212,8 @@ export function AdminChildProfile() {
           </Section>
         )}
       </div>
+
+      <ChildNotes childId={c.id} />
     </div>
   )
 }

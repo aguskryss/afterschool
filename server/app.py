@@ -3695,6 +3695,89 @@ def admin_delete_child(child_id):
     db.close()
     return jsonify({'message': 'Child deleted'})
 
+
+# ─── PRIVATE ADMIN NOTES ────────────────────────────────────────────────────
+# child_notes is its own table rather than another column on `children`, and
+# that is the whole feature: `children.notes` already exists and already
+# rides along in /api/counselor/roster's SELECT, so a counselor screen that
+# started rendering it would leak whatever was written there. Nothing in this
+# file ever selects child_notes into a counselor- or parent-facing response —
+# every route below is require_admin() — so keeping it structurally apart is
+# what makes "admin-only" true rather than merely true today.
+
+@app.route('/api/admin/children/<int:child_id>/notes', methods=['GET'])
+@jwt_required()
+def admin_list_child_notes(child_id):
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    db = get_db()
+    try:
+        child = db.execute("SELECT id FROM children WHERE id = %s", (child_id,)).fetchone()
+        if not child:
+            return jsonify({'error': 'Child not found'}), 404
+        rows = db.execute("""
+            SELECT id, author_name, body, created_at
+              FROM child_notes WHERE child_id = %s
+             ORDER BY created_at DESC, id DESC
+        """, (child_id,)).fetchall()
+    finally:
+        db.close()
+    return jsonify([{
+        'id': r['id'], 'author_name': r['author_name'],
+        'body': r['body'], 'created_at': iso_utc(r['created_at']),
+    } for r in rows])
+
+
+@app.route('/api/admin/children/<int:child_id>/notes', methods=['POST'])
+@jwt_required()
+def admin_add_child_note(child_id):
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    claims = get_jwt()
+    user_id = get_jwt_identity()
+    author_name = claims.get('name') or 'An admin'
+    body = ((request.json or {}).get('body') or '').strip()
+    if not body:
+        return jsonify({'error': 'Write something first'}), 400
+
+    db = get_db()
+    try:
+        child = db.execute("SELECT id FROM children WHERE id = %s", (child_id,)).fetchone()
+        if not child:
+            return jsonify({'error': 'Child not found'}), 404
+        note = db.execute("""
+            INSERT INTO child_notes (child_id, author_id, author_name, body)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id, author_name, body, created_at
+        """, (child_id, user_id, author_name, body)).fetchone()
+        db.commit()
+    finally:
+        db.close()
+    return jsonify({
+        'id': note['id'], 'author_name': note['author_name'],
+        'body': note['body'], 'created_at': iso_utc(note['created_at']),
+    }), 201
+
+
+@app.route('/api/admin/children/<int:child_id>/notes/<int:note_id>', methods=['DELETE'])
+@jwt_required()
+def admin_delete_child_note(child_id, note_id):
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    db = get_db()
+    try:
+        cur = db.execute(
+            "DELETE FROM child_notes WHERE id = %s AND child_id = %s",
+            (note_id, child_id),
+        )
+        if cur.rowcount == 0:
+            return jsonify({'error': 'Note not found'}), 404
+        db.commit()
+    finally:
+        db.close()
+    return jsonify({'message': 'Note deleted'})
+
+
 @app.route('/api/admin/parents/<int:parent_id>', methods=['DELETE'])
 @jwt_required()
 def admin_delete_parent(parent_id):
