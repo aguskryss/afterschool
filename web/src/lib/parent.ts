@@ -7,6 +7,12 @@
  */
 export type Absence = { date: string; kind: 'one_off' | 'recurring' | string }
 
+/** Where daily_ops currently has this child, right now — a class or a care
+ * room. Absent for organizations without the module, or when the child isn't
+ * in either one at this moment (outside the 3-6pm window, already picked up,
+ * etc.). */
+export type ChildLocation = { kind: 'class' | 'care'; name: string }
+
 export type Child = {
   id: number
   name: string
@@ -16,6 +22,7 @@ export type Child = {
   upcoming_absences: Absence[]
   absence_exceptions: unknown[]
   recurring_absences: unknown[]
+  location: ChildLocation | null
 }
 
 export const WEEKDAYS = [

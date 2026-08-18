@@ -1453,6 +1453,34 @@ def parent_get_children():
     horizon_str = horizon.strftime('%Y-%m-%d')
     DOW_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
 
+    # Where each child is right now, for organizations that bought daily_ops.
+    # Reuses the same _plan_for_day the counselor's board and My day read, so a
+    # parent can never see a room the routing engine itself would disagree
+    # with. Keyed by child_id and left empty (so `.get()` below is always
+    # safe) for every organization without the module, or outside the 3-6pm
+    # window the program actually runs in.
+    locations: dict[int, dict] = {}
+    today_day = DOW_NAMES[today.weekday()]
+    if module_on('daily_ops', db) and today_day in daily_routing.WEEKDAYS:
+        now_time = now_for_org(db).time()
+        current_block = daily_routing.block_of(now_time)
+        plan, _by_id, _rooms, _absent = _plan_for_day(db, today_day, today)
+        for session in plan['classes']:
+            start, end = session.get('start_time'), session.get('end_time')
+            if start and end and start <= now_time < end:
+                for entry in session['children']:
+                    locations[entry['child_id']] = {
+                        'kind': 'class', 'name': session['name'],
+                    }
+        if current_block:
+            for group in plan['care']:
+                if group['time_block'] != current_block or not group['room_name']:
+                    continue
+                for entry in group['children']:
+                    locations.setdefault(entry['child_id'], {
+                        'kind': 'care', 'name': group['room_name'],
+                    })
+
     rows = db.execute("""
         SELECT c.id, c.name, s.name as school, c.service_type,
                COALESCE(
@@ -1529,6 +1557,7 @@ def parent_get_children():
             'recurring_absences': rules_out,
             'absence_exceptions': sorted(exception_dates),
             'upcoming_absences': upcoming,
+            'location': locations.get(child_id),
         })
 
     db.close()

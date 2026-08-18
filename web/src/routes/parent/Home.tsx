@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { CalendarOff, Car, Check, ChevronRight, Users } from 'lucide-react'
+import { CalendarOff, Car, Check, ChevronRight, MapPin, Users } from 'lucide-react'
 import { api } from '@/lib/api'
 import { hasModule, readSession } from '@/lib/auth'
 import { stateOn, todayIso, type Child } from '@/lib/parent'
@@ -201,6 +201,15 @@ export function ParentHome() {
                       <p className="mt-0.5 truncate text-[0.88rem] font-medium text-ink-400">
                         {child.school}
                       </p>
+                      {/* Only for daily_ops orgs, and only while there's
+                          somewhere to point to — the routing engine leaves
+                          this null outside the 3-6pm window it plans for. */}
+                      {hasModule('daily_ops') && state === 'attending' && child.location && (
+                        <p className="mt-0.5 flex items-center gap-1 truncate text-[0.85rem] font-semibold text-sky-600">
+                          <MapPin className="size-3.5 shrink-0" strokeWidth={2.4} />
+                          In {child.location.name}
+                        </p>
+                      )}
                     </div>
                     {state === 'attending' ? (
                       <Pill status="leaf">Here today</Pill>
