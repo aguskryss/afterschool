@@ -279,6 +279,10 @@ MODULE_ROUTES: tuple[tuple[str, str], ...] = (
     ('/api/parent/authorized-pickups', 'secure_pickup'),
     ('/api/counselor/authorized-pickups', 'secure_pickup'),
     ('/api/counselor/pickup/', 'secure_pickup'),
+    # Admin's own write access to the same list: fixing an import mistake,
+    # and the bulk import itself.
+    ('/api/admin/authorized-pickups', 'secure_pickup'),
+    ('/api/admin/authorized-pickup-import', 'secure_pickup'),
     # The admin's record of the same releases, and its export.
     ('/api/admin/pickup-releases', 'secure_pickup'),
     ('/api/admin/export/pickup-releases', 'secure_pickup'),

@@ -50,6 +50,7 @@ import { ModuleGuard } from '@/components/ModuleGuard'
 import { AdminPhotos } from '@/routes/admin/Photos'
 import { AdminPickupLog } from '@/routes/admin/PickupLog'
 import { AdminRosterImport } from '@/routes/admin/RosterImport'
+import { AdminAuthorizedPickupImport } from '@/routes/admin/AuthorizedPickupImport'
 import { AdminRooms } from '@/routes/admin/Rooms'
 import { AdminClasses } from '@/routes/admin/Classes'
 import { AdminCareRules } from '@/routes/admin/CareRules'
@@ -134,6 +135,7 @@ const ADMIN_ROUTES: [string, ReactNode][] = [
   // core rather than gated, so the server will not refuse it. See ModuleGuard.
   ['/upload', <ModuleGuard unless="daily_ops"><AdminUpload /></ModuleGuard>],
   ['/roster-import', <ModuleGuard module="daily_ops"><AdminRosterImport /></ModuleGuard>],
+  ['/pickup-import', <ModuleGuard module="secure_pickup"><AdminAuthorizedPickupImport /></ModuleGuard>],
   ['/rooms', <ModuleGuard module="daily_ops"><AdminRooms /></ModuleGuard>],
   ['/classes', <ModuleGuard module="daily_ops"><AdminClasses /></ModuleGuard>],
   ['/care-rooms', <ModuleGuard module="daily_ops"><AdminCareRules /></ModuleGuard>],

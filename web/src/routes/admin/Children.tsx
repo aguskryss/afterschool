@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
+import { hasModule } from '@/lib/auth'
 import { confirmDelete, notifyError } from '@/lib/confirm'
 import { DataTable, type Column } from '@/components/DataTable'
 import {
@@ -1082,6 +1083,85 @@ function ChildNotesModal({
   )
 }
 
+/* ── Approved for pickup ──────────────────────────────────────────────── */
+
+type PickupPerson = {
+  id: number | null
+  name: string
+  relationship: string | null
+  is_parent: boolean
+}
+
+/**
+ * Read-only-plus-delete, not a place to add someone: a parent still owns
+ * that from their own app (or a row lands here via Import pickup list). What
+ * this closes is the loop those two paths can't — undoing a name that was
+ * added by mistake, or is no longer approved. The registered parent (`id`
+ * null, `is_parent`) never appears: they can already collect without being on
+ * this list, so there's nothing here to delete for them.
+ */
+function ApprovedPickups({ childId }: { childId: number }) {
+  const qc = useQueryClient()
+  const key = ['admin', 'child', String(childId), 'authorized-pickups']
+
+  const { data, isPending } = useQuery({
+    queryKey: key,
+    queryFn: () =>
+      api<{ people: PickupPerson[] }>(
+        `/api/counselor/authorized-pickups?child_id=${childId}`,
+      ),
+  })
+
+  const remove = useMutation({
+    mutationFn: (personId: number) =>
+      api(`/api/admin/authorized-pickups/${personId}`, { method: 'DELETE' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: key }),
+  })
+
+  const people = (data?.people ?? []).filter((p) => !p.is_parent)
+
+  return (
+    <Section title="Approved for pickup">
+      {isPending ? (
+        <Skeleton className="h-16" />
+      ) : people.length === 0 ? (
+        <p className="text-[0.9rem] font-medium text-ink-500">
+          Nobody added yet, besides the registered parent.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {people.map((p) => (
+            <li
+              key={p.id}
+              className="flex items-center justify-between gap-3 border-b border-canvas-200 pb-2 last:border-0 last:pb-0"
+            >
+              <span>
+                <span className="font-bold text-ink-900">{p.name}</span>
+                {p.relationship && (
+                  <span className="ml-2 text-[0.82rem] font-medium text-ink-400">
+                    {p.relationship}
+                  </span>
+                )}
+              </span>
+              <button
+                type="button"
+                aria-label={`Remove ${p.name}`}
+                disabled={remove.isPending}
+                onClick={async () => {
+                  if (p.id && (await confirmDelete(p.name))) remove.mutate(p.id)
+                }}
+                className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-300 transition-colors hover:bg-berry-50 hover:text-berry-500 disabled:opacity-40"
+              >
+                <Trash2 className="size-3.5" strokeWidth={2.1} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Section>
+  )
+}
+
 export function AdminChildProfile() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -1313,6 +1393,8 @@ export function AdminChildProfile() {
             </div>
           </Section>
         )}
+
+        {hasModule('secure_pickup') && <ApprovedPickups childId={c.id} />}
       </div>
 
       <ChildNotes childId={c.id} />

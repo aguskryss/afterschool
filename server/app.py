@@ -47,6 +47,7 @@ try:
     from server import roster_staging
     from server import scheduler
     from server import daily_routing
+    from server import pickup_import
     from server.roster_import import parse_grade
 except ImportError:
     from database import get_db, get_db_transaction, init_db
@@ -57,6 +58,7 @@ except ImportError:
     import roster_staging
     import scheduler
     import daily_routing
+    import pickup_import
     from roster_import import parse_grade
 
 try:
@@ -10234,6 +10236,141 @@ def counselor_list_authorized_pickups():
         'people': people,
         'released': dict(released) if released else None,
     })
+
+
+@app.route('/api/admin/authorized-pickups/<int:person_id>', methods=['DELETE'])
+@jwt_required()
+def admin_delete_authorized_pickup(person_id):
+    """Undo one row — a mistaken import, a person who is no longer approved.
+
+    Admin-only. A parent already has their own DELETE at
+    /api/parent/authorized-pickups/<id>, scoped to their own children; this
+    is the equivalent for the office, with no parent_id check because the
+    caller isn't the family — RLS is what keeps this inside one organization.
+    """
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    db = get_db()
+    try:
+        cur = db.execute(
+            "DELETE FROM authorized_pickup_people WHERE id = %s", (person_id,)
+        )
+        if cur.rowcount == 0:
+            return jsonify({'error': 'Not found'}), 404
+        db.commit()
+    finally:
+        db.close()
+    return jsonify({'message': 'Removed'})
+
+
+# ─── AUTHORIZED PICKUP IMPORT ───────────────────────────────────────────────
+# Bulk-loads authorized_pickup_people from the membership system's export,
+# instead of every family adding their own list by hand one at a time. Purely
+# additive — never deletes or deactivates a row — so unlike roster import
+# there is no staging/preview/commit ceremony: matched rows write in the same
+# request, and the response reports exactly what happened so a bad row is
+# fixable by fixing the file and re-uploading, safely, because the write is
+# idempotent (ON CONFLICT keeps re-running the same file a no-op).
+
+def _pickup_child_index(db) -> dict:
+    """Every active child in this organization, indexed by (last, first) and,
+    as a fallback, by full name — same two-key shape roster_staging.py's own
+    _existing_children uses to match a spreadsheet row to a child, for the
+    same reason: a membership export's name columns are the only handle it
+    gives you.
+    """
+    index: dict[tuple, list[int]] = {}
+    rows = db.execute(
+        "SELECT id, name, first_name, last_name FROM children WHERE active = 1"
+    ).fetchall()
+    for r in rows:
+        if r['last_name'] and r['first_name']:
+            key = ('n', r['last_name'].strip().casefold(), r['first_name'].strip().casefold())
+            index.setdefault(key, []).append(r['id'])
+        elif r['name']:
+            key = ('d', re.sub(r'\s+', ' ', r['name']).strip().casefold())
+            index.setdefault(key, []).append(r['id'])
+    return index
+
+
+@app.route('/api/admin/authorized-pickup-import', methods=['POST'])
+@jwt_required()
+def admin_authorized_pickup_import():
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    file = request.files['file']
+    filename = file.filename or ''
+    if not filename.lower().endswith(('.xlsx', '.xlsm')):
+        return jsonify({'error': 'Upload the list as .xlsx — this importer reads '
+                                 'the column headers, which CSV does not carry.'}), 400
+
+    try:
+        rows, problems = pickup_import.parse_pickup_workbook(io.BytesIO(file.read()))
+    except Exception as e:
+        print(f"[ERROR] authorized-pickup-import parse failed: {type(e).__name__}")
+        return jsonify({'error': 'Could not read that file.'}), 400
+    if problems:
+        return jsonify({'error': problems[0]}), 400
+
+    user_id = _current_user_id()
+    db = get_db_transaction()
+    try:
+        index = _pickup_child_index(db)
+        matched = 0
+        added = 0
+        updated = 0
+        unmatched = []
+        ambiguous = []
+        for row in rows:
+            key = ('n', row.last_name.casefold(), row.first_name.casefold())
+            candidates = index.get(key)
+            if not candidates:
+                key = ('d', f'{row.first_name} {row.last_name}'.strip().casefold())
+                candidates = index.get(key)
+            if not candidates:
+                unmatched.append({
+                    'row': row.row_number, 'name': f'{row.first_name} {row.last_name}'.strip(),
+                })
+                continue
+            if len(candidates) > 1:
+                ambiguous.append({
+                    'row': row.row_number, 'name': f'{row.first_name} {row.last_name}'.strip(),
+                    'count': len(candidates),
+                })
+                continue
+
+            matched += 1
+            child_id = candidates[0]
+            for person in row.people:
+                result = db.execute("""
+                    INSERT INTO authorized_pickup_people (child_id, name, relationship, created_by)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (child_id, name) DO UPDATE SET relationship = excluded.relationship
+                    RETURNING (xmax = 0) AS inserted
+                """, (child_id, person.name, person.relationship, user_id)).fetchone()
+                if result['inserted']:
+                    added += 1
+                else:
+                    updated += 1
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"[ERROR] authorized-pickup-import write failed: {type(e).__name__}")
+        return jsonify({'error': 'Could not import that file.'}), 500
+    finally:
+        db.close()
+
+    return jsonify({
+        'rows_read': len(rows),
+        'matched': matched,
+        'people_added': added,
+        'people_updated': updated,
+        'unmatched': unmatched,
+        'ambiguous': ambiguous,
+    }), 201
 
 
 @app.route('/api/counselor/pickup/release', methods=['POST'])

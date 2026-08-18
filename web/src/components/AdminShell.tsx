@@ -151,6 +151,7 @@ const GROUPS: { title: string; items: Item[] }[] = [
       // additive and shows its work first. Two near-identical buttons, one of
       // them destructive, is an accident waiting for a tired Monday.
       { to: '/upload', label: 'Upload roster', icon: Upload, unless: 'daily_ops' },
+      { to: '/pickup-import', label: 'Import pickup list', icon: UserCheck, module: 'secure_pickup' },
       { to: '/maintenance', label: 'Maintenance', icon: TriangleAlert },
     ],
   },
