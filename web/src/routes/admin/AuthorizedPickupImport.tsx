@@ -65,9 +65,8 @@ export function AdminAuthorizedPickupImport() {
         <p className="mb-5 rounded-2xl bg-canvas-100 p-4 text-[0.9rem] font-medium text-ink-700">
           Only adds and refreshes names — nothing here is ever removed or
           deactivated, and importing the same file twice changes nothing the
-          second time. "Parent/Guardian #1" is skipped: that's already the
-          registered parent, who can collect a child without being on this
-          list.
+          second time. Both Parent/Guardian columns and every Approved Person
+          come in, however many the file carries.
         </p>
 
         <label className="flex cursor-pointer flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-canvas-200 px-6 py-10 text-center transition-colors hover:bg-canvas-100">

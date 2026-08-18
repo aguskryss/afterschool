@@ -20,11 +20,18 @@ COLUMNS ARE RESOLVED BY HEADER NAME, NEVER POSITION
     file with more or fewer approved-person columns still reads correctly.
 
 WHAT IS DELIBERATELY NOT IMPORTED
-    `Parent/Guardian #1` is the account already registered as the child's
-    parent — already implicitly allowed to collect them (see
-    /api/counselor/authorized-pickups), so importing it would just be a
-    second row naming the same person. `Confirmed` is not read at all: it
-    does not gate whether a row imports.
+    `Confirmed` is not read at all: it does not gate whether a row imports.
+
+    Both Guardian columns ARE imported, even though Guardian #1 is usually
+    the same person as the child's registered parent, who can already
+    collect them without being on this list (see
+    /api/counselor/authorized-pickups). Importing the row anyway is
+    harmless — that endpoint already drops any authorized_pickup_people row
+    whose name matches the registered parent's, so a match becomes a no-op
+    duplicate rather than two entries on screen — and it is the only way a
+    Guardian #1 who differs from the portal account (a name typed
+    differently, a family where the portal login is a grandparent) still
+    ends up on the list.
 """
 
 from __future__ import annotations
@@ -59,6 +66,7 @@ _APPROVED_REL = re.compile(r'^approved person (\d+) relationship to child$')
 _LAST_NAME_HEADERS = {'participants last name', 'participant s last name', 'last name'}
 _FIRST_NAME_HEADERS = {'participants first name', 'participant s first name', 'first name'}
 _MEMBERSHIP_HEADERS = {'membership', 'membership no', 'membership number'}
+_GUARDIAN1_HEADERS = {'parent guardian 1 full name'}
 _GUARDIAN2_HEADERS = {'parent guardian 2 full name'}
 
 
@@ -80,6 +88,8 @@ def _resolve_headers(header_row) -> tuple[dict, dict, dict]:
             fields['first_name'] = i
         elif token in _MEMBERSHIP_HEADERS:
             fields['membership_no'] = i
+        elif token in _GUARDIAN1_HEADERS:
+            fields['guardian1'] = i
         elif token in _GUARDIAN2_HEADERS:
             fields['guardian2'] = i
         elif (m := _APPROVED_NAME.match(token)):
@@ -129,10 +139,11 @@ def _parse_sheet(rows: list[list]) -> list[PickupRow] | None:
             seen.add(name.casefold())
             people.append(ApprovedPerson(name=name, relationship=_cell(row, approved_rel.get(n))))
 
-        guardian2 = _cell(row, fields.get('guardian2'))
-        if guardian2 and guardian2.casefold() not in seen:
-            seen.add(guardian2.casefold())
-            people.append(ApprovedPerson(name=guardian2, relationship='Parent/Guardian'))
+        for guardian_key in ('guardian1', 'guardian2'):
+            guardian = _cell(row, fields.get(guardian_key))
+            if guardian and guardian.casefold() not in seen:
+                seen.add(guardian.casefold())
+                people.append(ApprovedPerson(name=guardian, relationship='Parent/Guardian'))
 
         parsed.append(PickupRow(
             row_number=row_number,
