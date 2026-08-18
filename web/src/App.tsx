@@ -248,9 +248,6 @@ export default function App() {
                 </Guard>
               }
             />
-            {/* Off the counselor's main nav (see CounselorShell) — this is
-                "things about me", like /schedule, so it is linked from
-                Account rather than given a rail destination of its own. */}
             <Route
               path="/office"
               element={

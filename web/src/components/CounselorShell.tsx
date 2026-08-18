@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react'
 import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import {
   CalendarClock,
   Camera,
@@ -8,9 +9,11 @@ import {
   ChevronsRight,
   House,
   LogOut,
+  MessagesSquare,
   ShieldCheck,
   Users,
 } from 'lucide-react'
+import { api } from '@/lib/api'
 import { hasModule, readSession, type ModuleKey } from '@/lib/auth'
 import { signOut } from '@/lib/signout'
 import { OrgLogo } from './Brand'
@@ -74,7 +77,35 @@ const NAV: Item[] = [
   // allergies and contacts — which is not the job of any list inside My day.
   { to: '/roster', label: 'Children', icon: Users },
   { to: '/gallery', label: 'Photos', icon: Camera, modules: ['photos'] },
+  // Unlike Schedule (moved under Account, see the file doc above), this one
+  // stays a destination: a reply from the office can land at any moment
+  // during the shift, and the badge below is what makes that visible without
+  // opening the tab on a hunch.
+  { to: '/office', label: 'Messages', icon: MessagesSquare, modules: ['staff_messaging'] },
 ]
+
+/**
+ * How many office replies this counselor hasn't opened yet.
+ *
+ * Same reason AdminShell's ConversationsBadge exists: without a count on the
+ * rail, a reply from the office only turns up if a counselor happens to open
+ * Messages on a hunch. The nav is mounted for the whole session, so this is
+ * the one poll on this shell.
+ */
+function MessagesBadge() {
+  const { data } = useQuery({
+    queryKey: ['counselor', 'conversation', 'unread'],
+    queryFn: () => api<{ count: number }>('/api/counselor/conversation/unread-count'),
+    enabled: hasModule('staff_messaging'),
+    refetchInterval: 60_000,
+  })
+  if (!data?.count) return null
+  return (
+    <span className="absolute -top-1 -right-1.5 flex min-w-[1.05rem] items-center justify-center rounded-full bg-grape-500 px-1 text-[0.62rem] font-extrabold text-white">
+      {data.count}
+    </span>
+  )
+}
 
 export function CounselorShell() {
   const session = readSession()
@@ -113,10 +144,13 @@ export function CounselorShell() {
               >
                 {({ isActive }) => (
                   <>
-                    <Icon
-                      className={`size-6 shrink-0 ${isActive ? 'text-sky-500' : ''}`}
-                      strokeWidth={isActive ? 2.2 : 1.8}
-                    />
+                    <span className="relative inline-flex shrink-0">
+                      <Icon
+                        className={`size-6 ${isActive ? 'text-sky-500' : ''}`}
+                        strokeWidth={isActive ? 2.2 : 1.8}
+                      />
+                      {to === '/office' && <MessagesBadge />}
+                    </span>
                     <span className={collapsed ? 'hidden' : 'hidden lg:inline'}>
                       {label}
                     </span>
@@ -248,10 +282,13 @@ export function CounselorShell() {
               >
                 {({ isActive }) => (
                   <>
-                    <Icon
-                      className="size-[1.35rem]"
-                      strokeWidth={isActive ? 2.2 : 1.7}
-                    />
+                    <span className="relative inline-flex">
+                      <Icon
+                        className="size-[1.35rem]"
+                        strokeWidth={isActive ? 2.2 : 1.7}
+                      />
+                      {to === '/office' && <MessagesBadge />}
+                    </span>
                     {label}
                   </>
                 )}

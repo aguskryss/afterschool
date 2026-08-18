@@ -8636,6 +8636,28 @@ def _staff_thread_messages(db, thread_id):
     return [_message_json(r) for r in rows]
 
 
+@app.route('/api/counselor/conversation/unread-count', methods=['GET'])
+@jwt_required()
+def counselor_conversation_unread_count():
+    """How many office replies this counselor hasn't opened yet.
+
+    Feeds the nav badge (CounselorShell), same reason the admin's Conversations
+    badge exists. A separate route from the GET above rather than folding the
+    count into it: that one clears counselor_unread as its read receipt, and a
+    nav badge polling every screen would clear it just by rendering.
+    """
+    claims = get_jwt()
+    if claims.get('role') != 'counselor':
+        return jsonify({'error': 'Unauthorized'}), 403
+    user_id = get_jwt_identity()
+    db = get_db()
+    try:
+        thread = _thread_for_counselor(db, user_id)
+    finally:
+        db.close()
+    return jsonify({'count': thread['counselor_unread'] if thread else 0})
+
+
 @app.route('/api/counselor/conversation', methods=['GET'])
 @jwt_required()
 def counselor_get_conversation():
