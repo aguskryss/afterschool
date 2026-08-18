@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
@@ -8,6 +8,7 @@ import {
   Mail,
   Pencil,
   Phone,
+  Send,
   Trash2,
   X,
 } from 'lucide-react'
@@ -223,6 +224,7 @@ export function AdminChildren() {
   const [day, setDay] = useState('')
   const [active, setActive] = useState('1')
   const [adding, setAdding] = useState(false)
+  const [notesFor, setNotesFor] = useState<{ id: number; name: string } | null>(null)
 
   const { data: schools } = useQuery({
     queryKey: ['admin', 'schools'],
@@ -312,6 +314,27 @@ export function AdminChildren() {
         <Pill status={TONES[c.status]}>{LABELS[c.status]}</Pill>
       ),
     },
+    {
+      key: 'notes',
+      header: '',
+      align: 'right',
+      value: () => '',
+      render: (c) => (
+        <button
+          type="button"
+          aria-label={`Private notes for ${c.name}`}
+          // The row itself navigates to the profile (onRowClick below); this
+          // button's whole point is opening notes without going there.
+          onClick={(e) => {
+            e.stopPropagation()
+            setNotesFor({ id: c.id, name: c.name })
+          }}
+          className="flex size-9 items-center justify-center rounded-full text-ink-400 transition-colors hover:bg-sky-50 hover:text-sky-600"
+        >
+          <Lock className="size-4" strokeWidth={2.2} />
+        </button>
+      ),
+    },
   ]
 
   const rows = data?.children
@@ -389,6 +412,14 @@ export function AdminChildren() {
           </div>
         }
       />
+
+      {notesFor && (
+        <ChildNotesModal
+          childId={notesFor.id}
+          childName={notesFor.name}
+          onClose={() => setNotesFor(null)}
+        />
+      )}
     </div>
   )
 }
@@ -862,15 +893,21 @@ function when(iso: string): string {
 }
 
 /**
- * A running log, not one editable box — who wrote it and when matters as
- * much as the text, the same reason every other record in this app (an
- * absence, a release, a staff message) keeps who and when rather than just a
- * current value. Backed by its own table (child_notes), never `children.notes`
- * — see sql/53_add_child_notes.sql for why that distinction is the feature.
+ * The notes themselves, as a chat with yourself — every bubble is the admin
+ * side because there's no other side. A running log rather than one editable
+ * box: who wrote it and when matters as much as the text, the same reason
+ * every other record in this app (an absence, a release, a staff message)
+ * keeps who and when rather than just a current value. Backed by its own
+ * table (child_notes), never `children.notes` — see
+ * sql/53_add_child_notes.sql for why that distinction is the feature.
+ *
+ * No Card, no height here: the caller decides whether this sits inline on
+ * the profile page or inside ChildNotesModal's floating frame.
  */
-function ChildNotes({ childId }: { childId: number }) {
+function ChildNotesThread({ childId }: { childId: number }) {
   const qc = useQueryClient()
   const [body, setBody] = useState('')
+  const endRef = useRef<HTMLDivElement>(null)
   const notesKey = ['admin', 'child', String(childId), 'notes']
 
   const { data: notes, isPending } = useQuery({
@@ -903,24 +940,61 @@ function ChildNotes({ childId }: { childId: number }) {
     onSuccess: () => void qc.invalidateQueries({ queryKey: notesKey }),
   })
 
+  // The server hands back newest-first (the shape a future "recent notes
+  // across every child" list would want); a chat reads oldest to newest with
+  // the latest at the bottom, so this screen reverses it.
+  const ordered = notes ? [...notes].slice().reverse() : []
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [ordered.length])
+
   return (
-    <Card className="mb-4 p-5">
-      <div className="mb-1 flex items-center gap-2">
-        <Lock className="size-4 text-ink-400" strokeWidth={2.2} />
-        <h2 className="text-[1.05rem] font-extrabold text-ink-900">
-          Private notes
-        </h2>
+    <div className="flex h-full flex-col">
+      <div className="mb-3 flex flex-1 flex-col gap-2 overflow-y-auto">
+        {isPending ? (
+          <Skeleton className="h-16" />
+        ) : ordered.length === 0 ? (
+          <EmptyState
+            icon={<Lock className="size-7" strokeWidth={1.8} />}
+            title="Nothing written yet"
+            body="Whatever you write here stays between admins."
+          />
+        ) : (
+          ordered.map((n) => (
+            <div
+              key={n.id}
+              className="max-w-[85%] self-end rounded-3xl rounded-br-lg bg-sky-500 px-4 py-2.5 text-white"
+            >
+              <p className="text-[0.92rem] font-medium whitespace-pre-wrap">
+                {n.body}
+              </p>
+              <p className="mt-1 flex items-center justify-end gap-1.5 text-[0.7rem] font-semibold text-white/70">
+                {n.author_name} · {when(n.created_at)}
+                <button
+                  type="button"
+                  aria-label="Delete note"
+                  disabled={remove.isPending}
+                  onClick={async () => {
+                    if (await confirmDelete('this note')) remove.mutate(n.id)
+                  }}
+                  className="rounded-full p-1 transition-colors hover:bg-white/20 disabled:opacity-40"
+                >
+                  <Trash2 className="size-3" strokeWidth={2.4} />
+                </button>
+              </p>
+            </div>
+          ))
+        )}
+        <div ref={endRef} />
       </div>
-      <p className="mb-3 text-[0.8rem] font-medium text-ink-400">
-        Only admins see this — never counselors or parents.
-      </p>
 
       <form
         onSubmit={(e) => {
           e.preventDefault()
           if (body.trim()) add.mutate()
         }}
-        className="mb-4 flex items-end gap-2"
+        className="flex items-end gap-2"
       >
         <textarea
           value={body}
@@ -930,53 +1004,81 @@ function ChildNotes({ childId }: { childId: number }) {
           aria-label="Add a private note"
           className="min-w-0 flex-1 resize-none rounded-2xl border border-canvas-200 bg-white px-4 py-2.5 text-[0.9rem] font-medium text-ink-900 outline-none focus:border-sky-500"
         />
-        <Button
-          type="submit"
-          size="sm"
-          loading={add.isPending}
-          disabled={!body.trim()}
-        >
+        <Button type="submit" loading={add.isPending} disabled={!body.trim()}>
+          <Send className="size-4" strokeWidth={2.4} />
           Add
         </Button>
       </form>
+    </div>
+  )
+}
 
-      {isPending ? (
-        <Skeleton className="h-16" />
-      ) : !notes?.length ? (
-        <p className="text-[0.88rem] font-medium text-ink-400">
-          Nothing written yet.
-        </p>
-      ) : (
-        <ul className="flex flex-col gap-3">
-          {notes.map((n) => (
-            <li
-              key={n.id}
-              className="flex items-start justify-between gap-3 border-b border-canvas-200 pb-3 last:border-0 last:pb-0"
-            >
-              <div className="min-w-0">
-                <p className="text-[0.9rem] font-medium whitespace-pre-wrap text-ink-800">
-                  {n.body}
-                </p>
-                <p className="mt-1 text-[0.76rem] font-semibold text-ink-400">
-                  {n.author_name} · {when(n.created_at)}
-                </p>
-              </div>
-              <button
-                type="button"
-                aria-label="Delete note"
-                disabled={remove.isPending}
-                onClick={async () => {
-                  if (await confirmDelete('this note')) remove.mutate(n.id)
-                }}
-                className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-300 transition-colors hover:bg-berry-50 hover:text-berry-500 disabled:opacity-40"
-              >
-                <Trash2 className="size-3.5" strokeWidth={2.1} />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+/** The profile page's inline copy — same thread, in a Card instead of a
+ * floating frame. */
+function ChildNotes({ childId }: { childId: number }) {
+  return (
+    <Card className="flex h-[28rem] flex-col p-5">
+      <div className="mb-1 flex items-center gap-2">
+        <Lock className="size-4 text-ink-400" strokeWidth={2.2} />
+        <h2 className="text-[1.05rem] font-extrabold text-ink-900">
+          Private notes
+        </h2>
+      </div>
+      <p className="mb-3 text-[0.8rem] font-medium text-ink-400">
+        Only admins see this — never counselors or parents.
+      </p>
+      <ChildNotesThread childId={childId} />
     </Card>
+  )
+}
+
+/**
+ * The fast path from the Children list — opened by the lock icon after
+ * Status, so seeing or adding a note never requires leaving the roster for a
+ * child's full profile.
+ */
+function ChildNotesModal({
+  childId,
+  childName,
+  onClose,
+}: {
+  childId: number
+  childName: string
+  onClose: () => void
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Private notes for ${childName}`}
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/85 p-4"
+    >
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute top-4 right-4 flex size-10 items-center justify-center rounded-full bg-white/15 text-white"
+      >
+        <X className="size-5" strokeWidth={2.4} />
+      </button>
+
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="flex h-[32rem] w-full max-w-lg flex-col rounded-card bg-white p-5 shadow-lift"
+      >
+        <div className="mb-1 flex items-center gap-2">
+          <Lock className="size-4 text-ink-400" strokeWidth={2.2} />
+          <h2 className="truncate text-[1.05rem] font-extrabold text-ink-900">
+            {childName}
+          </h2>
+        </div>
+        <p className="mb-3 text-[0.8rem] font-medium text-ink-400">
+          Only admins see this — never counselors or parents.
+        </p>
+        <ChildNotesThread childId={childId} />
+      </div>
+    </div>
   )
 }
 
