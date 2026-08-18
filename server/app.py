@@ -10337,12 +10337,17 @@ def admin_list_pickup_releases():
     try:
         # release_date is TEXT in YYYY-MM-DD, so a string BETWEEN orders the
         # same way a date one would.
+        # dismissal_time is per weekday, so each row needs the registration for
+        # the weekday IT was released on, not today's — to_char gives the same
+        # weekday name registrations.day_of_week is written in (see the
+        # generate_series pattern in the activity-roster and time-off queries).
         sql = """
             SELECT r.id, r.child_id, c.name AS child_name, s.name AS school,
                    s.id AS school_id,
                    r.person_name, r.person_relationship,
                    r.counselor_name, r.release_date, r.released_at,
                    a.checked_in_at,
+                   reg.dismissal_time,
                    r.signature IS NOT NULL AS has_signature
               FROM pickup_releases r
               JOIN children c ON c.id = r.child_id
@@ -10350,6 +10355,9 @@ def admin_list_pickup_releases():
               LEFT JOIN attendance_records a
                      ON a.child_id = r.child_id
                     AND a.attendance_date = r.release_date
+              LEFT JOIN registrations reg
+                     ON reg.child_id = r.child_id
+                    AND reg.day_of_week = to_char(r.release_date::date, 'FMDay')
              WHERE r.release_date BETWEEN %s AND %s
         """
         params = [start, end]
@@ -10378,6 +10386,11 @@ def admin_list_pickup_releases():
             'release_date': r['release_date'],
             'released_at': iso_utc(r['released_at']),
             'checked_in_at': iso_utc(r['checked_in_at']),
+            # NULL is not 6pm — see dismissal_clock. An organization that
+            # doesn't use dismissal times, or a child released on a weekday
+            # they aren't registered for, has nothing to compare against, and
+            # the client has to say so rather than guess.
+            'dismissal_time': r['dismissal_time'],
             'has_signature': r['has_signature'],
         } for r in rows],
         'truncated': truncated,
@@ -10466,6 +10479,7 @@ def export_pickup_releases():
             SELECT c.name AS child_name, s.name AS school,
                    r.person_name, r.person_relationship, r.counselor_name,
                    r.release_date, r.released_at, a.checked_in_at,
+                   reg.dismissal_time,
                    r.signature IS NOT NULL AS has_signature
               FROM pickup_releases r
               JOIN children c ON c.id = r.child_id
@@ -10473,6 +10487,9 @@ def export_pickup_releases():
               LEFT JOIN attendance_records a
                      ON a.child_id = r.child_id
                     AND a.attendance_date = r.release_date
+              LEFT JOIN registrations reg
+                     ON reg.child_id = r.child_id
+                    AND reg.day_of_week = to_char(r.release_date::date, 'FMDay')
              WHERE r.release_date BETWEEN %s AND %s
              ORDER BY r.release_date, s.name, c.name
         """, (start, end)).fetchall()
@@ -10484,14 +10501,27 @@ def export_pickup_releases():
     ws = wb.active
     ws.title = "Pickups"
     ws.append(["Date", "Child Name", "School", "Picked Up By", "Relationship",
-               "Checked In", "Checked Out", "Confirmed By", "Signed"])
+               "Checked In", "Expected", "Checked Out", "Late", "Confirmed By", "Signed"])
     style_header_row(ws, 1)
     for r in rows:
+        # Same conversion local_clock does, kept alongside it rather than
+        # factored out for a time() comparison that string formatting alone
+        # can't give — see PickupLog's isLate() for the client-side twin.
+        expected = daily_routing.dismissal_clock(r['dismissal_time'])
+        late = ''
+        if expected and r['released_at']:
+            released = r['released_at']
+            if released.tzinfo is None:
+                released = released.replace(tzinfo=timezone.utc)
+            released = released.astimezone(ZoneInfo(tzname or DEFAULT_TIMEZONE))
+            late = 'Yes' if released.time() > expected else 'No'
         ws.append([
             r['release_date'], r['child_name'], r['school'],
             r['person_name'], r['person_relationship'] or '',
             local_clock(r['checked_in_at'], tzname),
+            expected.strftime('%I:%M %p').lstrip('0') if expected else '',
             local_clock(r['released_at'], tzname),
+            late,
             r['counselor_name'], 'Yes' if r['has_signature'] else 'No',
         ])
     for col in ws.columns:

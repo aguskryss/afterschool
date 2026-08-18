@@ -4,6 +4,7 @@ import { ShieldCheck, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { DataTable, type Column } from '@/components/DataTable'
 import { ExportButton } from '@/components/ExportButton'
+import { dismissalLabel } from '@/components/ChildStatus'
 import { Pill } from '@/components/ui'
 
 type Release = {
@@ -18,7 +19,27 @@ type Release = {
   release_date: string
   released_at: string
   checked_in_at: string | null
+  /** The hour (3-6, meaning 3pm-6pm) from that day's registration — null for
+   * an organization that doesn't use dismissal times, same as everywhere
+   * else this field appears. */
+  dismissal_time: number | null
   has_signature: boolean
+}
+
+/**
+ * Past the hour a child was expected to leave. `dismissal_time` is always a
+ * whole PM hour (3-6), so +12 is the 24-hour form — same conversion
+ * daily_routing.dismissal_clock does server-side. Both sides are read in the
+ * browser's local time, same as timeOf() below, on the same assumption the
+ * rest of this screen already makes: whoever is looking at it is in the
+ * JCC's own timezone.
+ */
+function isLate(r: Release): boolean {
+  if (r.dismissal_time == null) return false
+  const out = new Date(r.released_at)
+  const actualMinutes = out.getHours() * 60 + out.getMinutes()
+  const expectedMinutes = (r.dismissal_time + 12) * 60
+  return actualMinutes > expectedMinutes
 }
 
 type ReleaseDetail = {
@@ -166,10 +187,25 @@ export function AdminPickupLog() {
       render: (r) => timeOf(r.checked_in_at),
     },
     {
+      key: 'dismissal_time',
+      header: 'Expected',
+      secondary: true,
+      value: (r) => r.dismissal_time ?? -1,
+      render: (r) => {
+        const label = dismissalLabel(r.dismissal_time)
+        return <span className={label ? '' : 'text-ink-300'}>{label ?? '—'}</span>
+      },
+    },
+    {
       key: 'released_at',
       header: 'Out',
       value: (r) => r.released_at,
-      render: (r) => timeOf(r.released_at),
+      render: (r) => (
+        <span className="flex items-center gap-2">
+          {timeOf(r.released_at)}
+          {isLate(r) && <Pill status="berry">Late</Pill>}
+        </span>
+      ),
     },
     { key: 'counselor_name', header: 'Confirmed by', secondary: true },
     {
