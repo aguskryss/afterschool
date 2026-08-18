@@ -22,6 +22,11 @@ COLUMNS ARE RESOLVED BY HEADER NAME, NEVER POSITION
 WHAT IS DELIBERATELY NOT IMPORTED
     `Confirmed` is not read at all: it does not gate whether a row imports.
 
+    Neither is a cell that only says "no value" — "--", "-", "n/a" and the
+    like, which this export uses instead of leaving a slot empty. `_cell`
+    reads those back as None, the same as a blank cell, so an unused
+    Approved Person column never becomes a row named "--".
+
     Both Guardian columns ARE imported, even though Guardian #1 is usually
     the same person as the child's registered parent, who can already
     collect them without being on this list (see
@@ -99,6 +104,21 @@ def _resolve_headers(header_row) -> tuple[dict, dict, dict]:
     return fields, approved_name, approved_rel
 
 
+# A membership export marks an empty slot with text rather than an empty
+# cell — "--", "-", "n/a" and friends. Reading one as a literal name would
+# create an authorized_pickup_people row named "--". Punctuation-only covers
+# the dashes and dots this file actually uses; the phrase set covers the
+# common ways the same "nothing here" gets typed as words.
+_PLACEHOLDER_TEXT = {'n a', 'na', 'none', 'nil', 'tbd', 'unknown'}
+
+
+def _is_placeholder(text: str) -> bool:
+    if not re.search(r'[0-9a-z]', text.lower()):
+        return True  # pure punctuation: "-", "--", "—", "...", "?"
+    folded = re.sub(r'[^a-z]+', ' ', text.lower()).strip()
+    return folded in _PLACEHOLDER_TEXT
+
+
 def _cell(row, idx) -> str | None:
     if idx is None or idx >= len(row):
         return None
@@ -106,7 +126,9 @@ def _cell(row, idx) -> str | None:
     if value is None:
         return None
     text = str(value).strip()
-    return text or None
+    if not text or _is_placeholder(text):
+        return None
+    return text
 
 
 def _parse_sheet(rows: list[list]) -> list[PickupRow] | None:
