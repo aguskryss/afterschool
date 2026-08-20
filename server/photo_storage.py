@@ -88,6 +88,7 @@ def upload(path: str, data: bytes, filename: str) -> str:
         data=data,
         headers={
             'Authorization': f'Bearer {key}',
+            'apikey': key,
             'Content-Type': _CONTENT_TYPES.get(ext, 'application/octet-stream'),
             # Paths carry a uuid, so a collision means a bug rather than a
             # retry — fail instead of quietly overwriting someone's photo.
@@ -111,7 +112,7 @@ def signed_url(path: str, seconds: int = 3600) -> str | None:
         res = requests.post(
             f'{url}/storage/v1/object/sign/{bucket}/{path}',
             json={'expiresIn': seconds},
-            headers={'Authorization': f'Bearer {key}'},
+            headers={'Authorization': f'Bearer {key}', 'apikey': key},
             timeout=_TIMEOUT,
         )
         if not res.ok:
@@ -146,7 +147,7 @@ def signed_urls(paths, seconds: int = 3600) -> dict:
         res = requests.post(
             f'{url}/storage/v1/object/sign/{bucket}',
             json={'expiresIn': seconds, 'paths': wanted},
-            headers={'Authorization': f'Bearer {key}'},
+            headers={'Authorization': f'Bearer {key}', 'apikey': key},
             timeout=_TIMEOUT,
         )
         if res.ok:
@@ -170,7 +171,7 @@ def delete(path: str) -> None:
         url, key, bucket = _config()
         requests.delete(
             f'{url}/storage/v1/object/{bucket}/{path}',
-            headers={'Authorization': f'Bearer {key}'},
+            headers={'Authorization': f'Bearer {key}', 'apikey': key},
             timeout=_TIMEOUT,
         )
     except Exception as e:

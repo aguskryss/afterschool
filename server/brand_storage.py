@@ -193,6 +193,7 @@ def upload(path: str, data: bytes) -> str:
         data=data,
         headers={
             'Authorization': f'Bearer {key}',
+            'apikey': key,
             'Content-Type': _CONTENT_TYPES.get(ext, 'application/octet-stream'),
             # Paths carry a uuid, so a collision is a bug rather than a retry.
             'x-upsert': 'false',
@@ -267,7 +268,7 @@ def delete(path: str | None) -> None:
         url, key, bucket = _config()
         requests.delete(
             f'{url}/storage/v1/object/{bucket}/{path}',
-            headers={'Authorization': f'Bearer {key}'},
+            headers={'Authorization': f'Bearer {key}', 'apikey': key},
             timeout=_TIMEOUT,
         )
     except Exception as e:
