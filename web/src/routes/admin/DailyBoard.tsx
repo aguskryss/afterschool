@@ -9,6 +9,7 @@ import {
   TriangleAlert,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { hasAllergy } from '@/lib/roster'
 import { Card, EmptyState, Pill, Skeleton } from '@/components/ui'
 
 const BLOCK_LABEL: Record<string, string> = {
@@ -446,7 +447,7 @@ function Sheet({
                         <Pill status="berry">absent</Pill>
                       </span>
                     )}
-                    {child.allergies && (
+                    {hasAllergy(child.allergies) && (
                       <span className="ms-2 inline-flex items-center gap-1 text-[0.78rem] font-bold text-berry-600">
                         <CircleAlert className="size-3" strokeWidth={2.6} />
                         {child.allergies}

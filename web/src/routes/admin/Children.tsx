@@ -15,6 +15,7 @@ import {
 import { api, ApiError } from '@/lib/api'
 import { hasModule } from '@/lib/auth'
 import { confirmDelete, notifyError } from '@/lib/confirm'
+import { hasAllergy } from '@/lib/roster'
 import { DataTable, type Column } from '@/components/DataTable'
 import {
   AddButton,
@@ -1283,7 +1284,7 @@ export function AdminChildProfile() {
 
       {/* Allergies are the one field that changes what a counselor does in the
           moment, so it sits above everything else rather than in a table. */}
-      {c.allergies && (
+      {hasAllergy(c.allergies) && (
         <Card className="mb-4 border-l-4 border-coral-500 bg-coral-50 p-4">
           <p className="text-[0.8rem] font-extrabold tracking-wide text-coral-700 uppercase">
             Allergies
