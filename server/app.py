@@ -3147,6 +3147,10 @@ def _parse_days_payload(data):
     the two "add a child" forms that have no class picker — and treats each
     one as "attending, no class" so neither caller has to change. Returns
     (days, all_class_ids, error_response); error_response is None on success.
+
+    `dismissal_time` is carried through only when the entry includes the key
+    at all — omitting it (the classes-only path most callers still use) must
+    leave the stored hour untouched, not null it out. See `_sync_child_schedule`.
     """
     days = data.get('days') or []
     if not isinstance(days, list):
@@ -3170,7 +3174,17 @@ def _parse_days_payload(data):
                 'error': f'class_session_ids for {day} must be a list of ids'
             }), 400)
         all_class_ids.update(ids)
-        parsed.append({'day': day, 'class_session_ids': ids})
+        parsed_entry = {'day': day, 'class_session_ids': ids}
+        if 'dismissal_time' in entry:
+            dismissal_time = entry['dismissal_time']
+            if dismissal_time is not None and (
+                not isinstance(dismissal_time, int) or dismissal_time not in (3, 4, 5, 6)
+            ):
+                return None, None, (jsonify({
+                    'error': f'dismissal_time for {day} must be 3, 4, 5, 6 or null'
+                }), 400)
+            parsed_entry['dismissal_time'] = dismissal_time
+        parsed.append(parsed_entry)
     return parsed, all_class_ids, None
 
 
@@ -3185,9 +3199,11 @@ def _sync_child_schedule(db, child_id, days, all_class_ids):
     edit can never leave a stale class enrollment behind on a day the child
     was just taken off of.
 
-    A registration already on a day that stays is left alone —
-    `dismissal_time` lives there and arrives from the roster import, not from
-    here, exactly as the plain days-only path above already guaranteed.
+    `dismissal_time` normally arrives from the roster import and is left
+    alone here — a registration already on a day that stays is otherwise
+    untouched. An admin correcting the hour by hand is the one exception:
+    when an entry carries the `dismissal_time` key (see `_parse_days_payload`),
+    it is written to that day's row, new or existing alike.
 
     `class_session_ids` are validated against the day they are claimed for
     before this runs — see the caller. That check is also what keeps this
@@ -3214,6 +3230,12 @@ def _sync_child_schedule(db, child_id, days, all_class_ids):
             "ON CONFLICT (child_id, day_of_week) DO NOTHING",
             (child_id, day),
         )
+        if 'dismissal_time' in entry:
+            db.execute(
+                "UPDATE registrations SET dismissal_time = %s "
+                "WHERE child_id = %s AND day_of_week = %s",
+                (entry['dismissal_time'], child_id, day),
+            )
         # Everything this child has on THIS day that is not in the new set is
         # coming off it — the rest of `wanted` gets inserted below.
         db.execute("""
@@ -3577,9 +3599,10 @@ def admin_update_child(child_id):
         counselor's roster, the headcount and the sign-out sheet at once,
         with nothing on screen to say why.
       * Weekdays that are staying put are left alone rather than deleted and
-        re-inserted. registrations.dismissal_time lives on those rows, and it
-        arrives from the roster import, not from this endpoint — rewriting
-        the row would silently drop the hour the child goes home.
+        re-inserted, so an entry that omits `dismissal_time` never drops the
+        hour the roster import set. An entry that includes the key — the
+        admin's manual correction — overwrites it instead. See
+        `_sync_child_schedule`.
 
     `days` items carry `class_session_ids` too now — see
     `_sync_child_schedule` for how that stays in step with the day itself.

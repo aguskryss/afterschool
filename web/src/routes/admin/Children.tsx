@@ -646,27 +646,33 @@ type ClassOption = {
 }
 
 /**
- * One day's classes: current ones as removable chips, plus a picker to add
+ * One day's classes and dismissal hour together, since Save writes both at
+ * once. Classes: current ones as removable chips, plus a picker to add
  * another from that weekday's catalogue. More than one is a real case, not
  * an edge one — R3/R4 chain a child through back-to-back classes on the same
  * afternoon, so a single dropdown here would silently drop the second one
- * for anybody already living that.
+ * for anybody already living that. Dismissal hour: the roster import sets it
+ * for most children, but a parent's mid-year request or an import mistake
+ * needs a way to fix it by hand without re-running the whole import.
  */
 function DayClassEditor({
   day,
   current,
+  dismissalTime,
   saving,
   onSave,
   onCancel,
 }: {
   day: string
   current: DayClass[]
+  dismissalTime: number | null
   saving: boolean
-  onSave: (classIds: number[]) => void
+  onSave: (classIds: number[], dismissalTime: number | null) => void
   onCancel: () => void
 }) {
   const [ids, setIds] = useState<number[]>(current.map((c) => c.id))
   const [adding, setAdding] = useState('')
+  const [hour, setHour] = useState<number | null>(dismissalTime)
 
   const { data: options } = useQuery({
     queryKey: ['admin', 'class-sessions', day],
@@ -682,6 +688,22 @@ function DayClassEditor({
 
   return (
     <div className="mt-2 rounded-2xl bg-canvas-100 p-3">
+      <label className="mb-2 flex items-center gap-2 text-[0.8rem] font-bold text-ink-600">
+        Dismissal time
+        <select
+          value={hour ?? ''}
+          onChange={(e) => setHour(e.target.value ? Number(e.target.value) : null)}
+          aria-label={`Dismissal time on ${day}`}
+          className="h-8 rounded-full border-2 border-canvas-200 bg-white px-3 text-[0.82rem] font-semibold text-ink-800 outline-none focus:border-sky-500"
+        >
+          <option value="">Not set</option>
+          <option value={3}>3:00 PM</option>
+          <option value={4}>4:00 PM</option>
+          <option value={5}>5:00 PM</option>
+          <option value={6}>6:00 PM</option>
+        </select>
+      </label>
+
       <div className="mb-2 flex flex-wrap gap-1.5">
         {ids.length === 0 && (
           <span className="text-[0.82rem] font-medium text-ink-400">
@@ -737,7 +759,7 @@ function DayClassEditor({
       )}
 
       <div className="flex gap-2">
-        <Button size="sm" loading={saving} onClick={() => onSave(ids)}>
+        <Button size="sm" loading={saving} onClick={() => onSave(ids, hour)}>
           Save
         </Button>
         <Button size="sm" variant="ghost" onClick={onCancel}>
@@ -749,10 +771,10 @@ function DayClassEditor({
 }
 
 /**
- * Classes come from class_enrollments and are editable here, one day at a
- * time. The care room never is — see the note on `DayCare` above — it is
- * shown as where the system would actually send this child, not as a field
- * with a dropdown next to it.
+ * Classes and dismissal time both come from class_enrollments/registrations
+ * and are editable here, one day at a time. The care room never is — see the
+ * note on `DayCare` above — it is shown as where the system would actually
+ * send this child, not as a field with a dropdown next to it.
  */
 function WeeklySchedule({ child }: { child: ChildDetail }) {
   const qc = useQueryClient()
@@ -760,8 +782,13 @@ function WeeklySchedule({ child }: { child: ChildDetail }) {
   const map = byDay(child.days)
 
   const save = useMutation({
-    mutationFn: (days: { day: string; class_session_ids: number[] }[]) =>
-      api(`/api/admin/children/${child.id}`, { method: 'PUT', body: { days } }),
+    mutationFn: (
+      days: {
+        day: string
+        class_session_ids: number[]
+        dismissal_time?: number | null
+      }[],
+    ) => api(`/api/admin/children/${child.id}`, { method: 'PUT', body: { days } }),
     onSuccess: () => {
       setEditingDay(null)
       void qc.invalidateQueries({ queryKey: ['admin', 'child', String(child.id)] })
@@ -772,12 +799,15 @@ function WeeklySchedule({ child }: { child: ChildDetail }) {
   // Every currently-attending day travels along unchanged except the one
   // being saved — the endpoint treats a day missing from this list as "no
   // longer attending", so sending anything less would unenroll the rest.
-  function saveDay(day: string, classIds: number[]) {
+  // `dismissal_time` is only sent for the day being saved: leaving the key
+  // off the others is what tells the endpoint not to touch their hour.
+  function saveDay(day: string, classIds: number[], dismissalTime: number | null) {
     save.mutate(
-      child.days.map((d) => ({
-        day: d.day,
-        class_session_ids: d.day === day ? classIds : d.classes.map((c) => c.id),
-      })),
+      child.days.map((d) =>
+        d.day === day
+          ? { day: d.day, class_session_ids: classIds, dismissal_time: dismissalTime }
+          : { day: d.day, class_session_ids: d.classes.map((c) => c.id) },
+      ),
     )
   }
 
@@ -826,7 +856,7 @@ function WeeklySchedule({ child }: { child: ChildDetail }) {
                   )}
                   <button
                     type="button"
-                    aria-label={`Edit ${d}'s classes`}
+                    aria-label={`Edit ${d}'s schedule`}
                     onClick={() => setEditingDay(d)}
                     className="rounded-full p-1 text-ink-400 hover:bg-canvas-100 hover:text-ink-700"
                   >
@@ -856,8 +886,9 @@ function WeeklySchedule({ child }: { child: ChildDetail }) {
                 <DayClassEditor
                   day={d}
                   current={entry.classes}
+                  dismissalTime={entry.dismissal_time}
                   saving={save.isPending}
-                  onSave={(ids) => saveDay(d, ids)}
+                  onSave={(ids, hour) => saveDay(d, ids, hour)}
                   onCancel={() => setEditingDay(null)}
                 />
               )}
