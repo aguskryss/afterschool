@@ -10261,6 +10261,55 @@ def counselor_list_authorized_pickups():
     })
 
 
+@app.route('/api/admin/authorized-pickups', methods=['POST'])
+@jwt_required()
+def admin_add_authorized_pickup():
+    """The office's equivalent of a parent's own POST, for a child registered
+    by hand whose parent has no account yet to add the list themselves.
+
+    Same one-list-per-family fan-out as parent_add_authorized_pickup: this
+    person is authorized to collect every active child of the same parent,
+    not just the one the admin had open, so the two entry points don't leave
+    a sibling's list one name short of the other's.
+    """
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    data = request.json or {}
+    child_id = data.get('child_id')
+    name = (data.get('name') or '').strip()
+    relationship = (data.get('relationship') or '').strip() or None
+
+    if not child_id or not name:
+        return jsonify({'error': 'A child and a name are required'}), 400
+
+    admin_id = get_jwt_identity()
+    db = get_db()
+    try:
+        child = db.execute(
+            "SELECT parent_id FROM children WHERE id = %s AND active = 1",
+            (child_id,),
+        ).fetchone()
+        if not child:
+            return jsonify({'error': 'Child not found'}), 404
+
+        rows = db.execute("""
+            INSERT INTO authorized_pickup_people (child_id, name, relationship, created_by)
+            SELECT c.id, %s, %s, %s
+              FROM children c
+             WHERE c.parent_id = %s AND c.active = 1
+            ON CONFLICT (child_id, name) DO UPDATE SET relationship = excluded.relationship
+            RETURNING id, child_id, name, relationship
+        """, (name, relationship, admin_id, child['parent_id'])).fetchall()
+        db.commit()
+    except Exception as e:
+        print(f"[ERROR] admin_add_authorized_pickup: {e}")
+        return jsonify({'error': 'Could not add that person'}), 400
+    finally:
+        db.close()
+    return jsonify([dict(r) for r in rows]), 201
+
+
 @app.route('/api/admin/authorized-pickups/<int:person_id>', methods=['DELETE'])
 @jwt_required()
 def admin_delete_authorized_pickup(person_id):

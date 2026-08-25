@@ -8,6 +8,7 @@ import {
   Mail,
   Pencil,
   Phone,
+  Plus,
   Send,
   Trash2,
   X,
@@ -1125,16 +1126,23 @@ type PickupPerson = {
 }
 
 /**
- * Read-only-plus-delete, not a place to add someone: a parent still owns
- * that from their own app (or a row lands here via Import pickup list). What
- * this closes is the loop those two paths can't — undoing a name that was
- * added by mistake, or is no longer approved. The registered parent (`id`
- * null, `is_parent`) never appears: they can already collect without being on
- * this list, so there's nothing here to delete for them.
+ * Delete has always lived here — undoing a name that was added by mistake,
+ * or is no longer approved. Add joined it for the case a parent's own app
+ * can't cover yet: a child registered by hand before the parent has an
+ * activated account, where someone still has to be authorized to collect
+ * them on day one. Editing stays parent-only (their PATCH keeps every
+ * sibling's copy of a name in sync; the office adds and removes instead of
+ * renaming). The registered parent (`id` null, `is_parent`) never appears:
+ * they can already collect without being on this list, so there's nothing
+ * here to delete or add for them.
  */
 function ApprovedPickups({ childId }: { childId: number }) {
   const qc = useQueryClient()
   const key = ['admin', 'child', String(childId), 'authorized-pickups']
+  const [adding, setAdding] = useState(false)
+  const [name, setName] = useState('')
+  const [relationship, setRelationship] = useState('')
+  const [error, setError] = useState('')
 
   const { data, isPending } = useQuery({
     queryKey: key,
@@ -1142,6 +1150,27 @@ function ApprovedPickups({ childId }: { childId: number }) {
       api<{ people: PickupPerson[] }>(
         `/api/counselor/authorized-pickups?child_id=${childId}`,
       ),
+  })
+
+  const reset = () => {
+    setName('')
+    setRelationship('')
+    setError('')
+    setAdding(false)
+  }
+
+  const add = useMutation({
+    mutationFn: () =>
+      api('/api/admin/authorized-pickups', {
+        method: 'POST',
+        body: { child_id: childId, name, relationship },
+      }),
+    onSuccess: () => {
+      reset()
+      void qc.invalidateQueries({ queryKey: key })
+    },
+    onError: (e) =>
+      setError(e instanceof ApiError ? e.message : 'Could not add that person.'),
   })
 
   const remove = useMutation({
@@ -1161,7 +1190,7 @@ function ApprovedPickups({ childId }: { childId: number }) {
           Nobody added yet, besides the registered parent.
         </p>
       ) : (
-        <ul className="flex flex-col gap-2">
+        <ul className="mb-2 flex flex-col gap-2">
           {people.map((p) => (
             <li
               key={p.id}
@@ -1189,6 +1218,62 @@ function ApprovedPickups({ childId }: { childId: number }) {
             </li>
           ))}
         </ul>
+      )}
+
+      {adding ? (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (name.trim()) add.mutate()
+          }}
+          className="mt-2 flex flex-col gap-2"
+        >
+          <Field
+            label="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Grandma Ruth"
+            autoFocus
+          />
+          <Field
+            label="Relationship"
+            value={relationship}
+            onChange={(e) => setRelationship(e.target.value)}
+            placeholder="Grandmother"
+          />
+          {/* Same one-list-per-family rule as the parent app: this also
+              authorizes every sibling of this child, not just this one. */}
+          <p className="px-1 text-[0.78rem] font-medium text-ink-400">
+            This also applies to the parent's other children, if any.
+          </p>
+          {error && (
+            <p className="text-[0.82rem] font-semibold text-berry-600">
+              {error}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button
+              type="submit"
+              size="sm"
+              loading={add.isPending}
+              disabled={!name.trim()}
+            >
+              Add
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={reset}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="flex items-center gap-1.5 rounded-2xl px-2 py-1.5 text-[0.82rem] font-bold text-ink-600 transition-colors hover:bg-canvas-100 active:bg-canvas-200"
+        >
+          <Plus className="size-4" strokeWidth={2.8} />
+          Add someone
+        </button>
       )}
     </Section>
   )
