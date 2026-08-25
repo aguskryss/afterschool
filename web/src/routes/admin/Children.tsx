@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
 import { hasModule } from '@/lib/auth'
-import { confirmDelete, notifyError } from '@/lib/confirm'
+import { confirmAction, confirmDelete, notifyError } from '@/lib/confirm'
 import { hasAllergy } from '@/lib/roster'
 import { DataTable, type Column } from '@/components/DataTable'
 import {
@@ -776,6 +776,14 @@ function DayClassEditor({
  * and are editable here, one day at a time. The care room never is — see the
  * note on `DayCare` above — it is shown as where the system would actually
  * send this child, not as a field with a dropdown next to it.
+ *
+ * Clearing a day's classes leaves the day itself registered — "No class,
+ * care all afternoon" is a real, common schedule, not an empty one — so it
+ * does not stop a care room from looking for them. Removing the day (the
+ * trash icon) is the separate, stronger action for "not coming that day at
+ * all": it drops the registrations row itself, the same way leaving a day
+ * out of `days` does for `_sync_child_schedule` on the server, so nothing
+ * downstream has a reason to expect them.
  */
 function WeeklySchedule({ child }: { child: ChildDetail }) {
   const qc = useQueryClient()
@@ -796,6 +804,20 @@ function WeeklySchedule({ child }: { child: ChildDetail }) {
       void qc.invalidateQueries({ queryKey: ['admin', 'children'] })
     },
   })
+
+  async function removeDay(day: string) {
+    const ok = await confirmAction(
+      `Stop bringing them on ${day}?`,
+      `They come off ${day} entirely — no class, no care room, nobody looks for them at pickup. Other days are not affected.`,
+      'Remove',
+    )
+    if (!ok) return
+    save.mutate(
+      child.days
+        .filter((d) => d.day !== day)
+        .map((d) => ({ day: d.day, class_session_ids: d.classes.map((c) => c.id) })),
+    )
+  }
 
   // Every currently-attending day travels along unchanged except the one
   // being saved — the endpoint treats a day missing from this list as "no
@@ -862,6 +884,15 @@ function WeeklySchedule({ child }: { child: ChildDetail }) {
                     className="rounded-full p-1 text-ink-400 hover:bg-canvas-100 hover:text-ink-700"
                   >
                     <Pencil className="size-3.5" strokeWidth={2.4} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${d} entirely`}
+                    disabled={save.isPending}
+                    onClick={() => void removeDay(d)}
+                    className="rounded-full p-1 text-ink-400 hover:bg-berry-50 hover:text-berry-500 disabled:opacity-40"
+                  >
+                    <Trash2 className="size-3.5" strokeWidth={2.4} />
                   </button>
                 </div>
               )}
