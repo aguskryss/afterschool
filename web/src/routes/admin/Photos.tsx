@@ -47,6 +47,7 @@ function Uploader({ date, onDone }: { date: string; onDone: () => void }) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
   const [tagged, setTagged] = useState<number[]>([])
+  const [broadcast, setBroadcast] = useState(false)
   const [caption, setCaption] = useState('')
   const [query, setQuery] = useState('')
   const [error, setError] = useState('')
@@ -74,9 +75,25 @@ function Uploader({ date, onDone }: { date: string; onDone: () => void }) {
 
   const chosen = children.filter((c) => tagged.includes(c.id))
 
+  // Tags every active child rather than sending anything separate: the
+  // server already fans a push out to one parent per tagged child (see
+  // counselor_upload_photo), so this is the one flip that makes "everyone"
+  // reuse that exact path instead of needing a second notification route.
+  const toggleBroadcast = () => {
+    if (broadcast) {
+      setBroadcast(false)
+      setTagged([])
+    } else {
+      setBroadcast(true)
+      setTagged(children.map((c) => c.id))
+      setQuery('')
+    }
+  }
+
   const reset = () => {
     setFile(null)
     setTagged([])
+    setBroadcast(false)
     setCaption('')
     setQuery('')
     setError('')
@@ -140,56 +157,77 @@ function Uploader({ date, onDone }: { date: string; onDone: () => void }) {
             Who is in it?
           </p>
 
-          {chosen.length > 0 && (
-            <div className="mb-2 flex flex-wrap gap-1.5">
-              {chosen.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() =>
-                    setTagged((prev) => prev.filter((x) => x !== c.id))
-                  }
-                  className="inline-flex items-center gap-1.5 rounded-full bg-grape-500 px-3 py-1.5 text-[0.82rem] font-bold text-white"
-                >
-                  {c.name}
-                  <X className="size-3.5" strokeWidth={2.6} />
-                </button>
-              ))}
-            </div>
-          )}
+          <label className="mb-3 flex items-center gap-2 text-[0.88rem] font-semibold text-ink-700">
+            <input
+              type="checkbox"
+              checked={broadcast}
+              disabled={children.length === 0}
+              onChange={toggleBroadcast}
+              className="size-4 accent-grape-500"
+            />
+            Send to every family ({children.length} active{' '}
+            {children.length === 1 ? 'child' : 'children'})
+          </label>
 
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search a child by name"
-            aria-label="Search a child to tag"
-            className="mb-2 w-full rounded-2xl border-2 border-canvas-200 px-4 py-2 text-[0.88rem] font-medium outline-none focus:border-grape-500"
-          />
-          {matches.length > 0 && (
-            <ul className="mb-3 flex flex-col divide-y divide-canvas-200 overflow-hidden rounded-2xl border border-canvas-200">
-              {matches.map((c) => (
-                <li key={c.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTagged((prev) =>
-                        prev.includes(c.id) ? prev : [...prev, c.id],
-                      )
-                      setQuery('')
-                    }}
-                    className="flex w-full items-baseline justify-between gap-3 px-3 py-2 text-left hover:bg-canvas-100"
-                  >
-                    <span className="truncate text-[0.88rem] font-bold text-ink-800">
+          {broadcast ? (
+            <p className="mb-3 rounded-2xl border border-canvas-200 bg-canvas-100 px-3 py-2 text-[0.82rem] font-medium text-ink-600">
+              Every family with an active child will see this photo — nobody
+              needs to be tagged one by one.
+            </p>
+          ) : (
+            <>
+              {chosen.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {chosen.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() =>
+                        setTagged((prev) => prev.filter((x) => x !== c.id))
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-full bg-grape-500 px-3 py-1.5 text-[0.82rem] font-bold text-white"
+                    >
                       {c.name}
-                    </span>
-                    <span className="shrink-0 text-[0.76rem] font-semibold text-ink-400">
-                      {c.school}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+                      <X className="size-3.5" strokeWidth={2.6} />
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search a child by name"
+                aria-label="Search a child to tag"
+                className="mb-2 w-full rounded-2xl border-2 border-canvas-200 px-4 py-2 text-[0.88rem] font-medium outline-none focus:border-grape-500"
+              />
+              {matches.length > 0 && (
+                <ul className="mb-3 flex flex-col divide-y divide-canvas-200 overflow-hidden rounded-2xl border border-canvas-200">
+                  {matches.map((c) => (
+                    <li key={c.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTagged((prev) =>
+                            prev.includes(c.id) ? prev : [...prev, c.id],
+                          )
+                          setQuery('')
+                        }}
+                        className="flex w-full items-baseline justify-between gap-3 px-3 py-2 text-left hover:bg-canvas-100"
+                      >
+                        <span className="truncate text-[0.88rem] font-bold text-ink-800">
+                          {c.name}
+                        </span>
+                        <span className="shrink-0 text-[0.76rem] font-semibold text-ink-400">
+                          {c.school}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
           )}
 
           <input
@@ -214,8 +252,11 @@ function Uploader({ date, onDone }: { date: string; onDone: () => void }) {
               loading={upload.isPending}
               onClick={() => upload.mutate()}
             >
-              Post to {tagged.length || 'no'}{' '}
-              {tagged.length === 1 ? 'family' : 'families'}
+              {broadcast
+                ? `Post to all ${tagged.length} families`
+                : `Post to ${tagged.length || 'no'} ${
+                    tagged.length === 1 ? 'family' : 'families'
+                  }`}
             </Button>
             <Button variant="ghost" onClick={reset}>
               Cancel
@@ -335,8 +376,16 @@ export function AdminPhotos() {
               )}
               <div className="flex items-start gap-2 p-3">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[0.82rem] font-bold text-ink-800">
-                    {p.children.join(', ') || 'Nobody tagged'}
+                  <p
+                    className="truncate text-[0.82rem] font-bold text-ink-800"
+                    title={p.children.join(', ')}
+                  >
+                    {/* A broadcast tags every active child, which reads as a
+                        wall of names rather than useful information — the
+                        count says what matters here. */}
+                    {p.children.length > 6
+                      ? `${p.children.length} children · everyone`
+                      : p.children.join(', ') || 'Nobody tagged'}
                   </p>
                   <p className="truncate text-[0.76rem] font-medium text-ink-400">
                     {/* The day is on the card only when the grid spans days —
