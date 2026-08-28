@@ -596,6 +596,12 @@ def init_db():
     # sent yet" from "invite sent, waiting for setup".
     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_at TIMESTAMP")
 
+    # Stamped on every fully successful sign-in (after 2FA, if enabled) — see
+    # sql/55_add_last_login_at.sql. NULL means "never signed in since this
+    # shipped", which the admin Parents/Counselors screens show as "Never"
+    # rather than treating as a missing value to backfill.
+    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ")
+
     # Per-school roster split declaration. 'grade' = K-1st / 2-5th split,
     # 'torah' = Torah / Regular split, 'none' = no split. This is the
     # authoritative source for the counselor view; the roster parser also

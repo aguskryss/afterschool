@@ -1226,6 +1226,14 @@ def login():
     g.organization_id = user['organization_id']
     g.is_superadmin = (user['role'] == 'superadmin')
 
+    # Stamped only here, not up by the password check above: a request that
+    # stops at requires_2fa hasn't actually signed in yet, and counting it
+    # would show an admin "last login: today" for someone who never got past
+    # their 2FA prompt.
+    db = get_db()
+    db.execute("UPDATE users SET last_login_at = NOW() WHERE id = %s", (user['id'],))
+    db.close()
+
     claims = {'role': user['role'], 'name': user['name'],
               'org': user['organization_id']}
     token = create_access_token(identity=str(user['id']), additional_claims=claims)
@@ -2561,6 +2569,7 @@ def admin_get_counselors():
                -- Invitation state, so the list can tell an active counselor
                -- from one who was invited and never finished setting up.
                u.password_set_at, u.invited_at AS last_invite_at,
+               u.last_login_at,
                COALESCE(
                  (SELECT json_agg(json_build_object(
                             'school_id', s.id,
@@ -2590,6 +2599,7 @@ def admin_get_counselors():
             'covers_all_schools': len(schools) == 0,
             'password_set_at': iso_utc(c['password_set_at']),
             'last_invite_at': iso_utc(c['last_invite_at']),
+            'last_login_at': iso_utc(c['last_login_at']),
         })
     db.close()
     return jsonify(result)
@@ -3012,7 +3022,7 @@ def admin_get_parents():
     db = get_db()
     parents = db.execute("""
         SELECT u.id, u.name, u.email, u.phone, u.is_new, u.password_set_at,
-               u.invited_at AS last_invite_at,
+               u.invited_at AS last_invite_at, u.last_login_at,
                COALESCE(
                  (SELECT json_agg(json_build_object(
                     'id', c.id, 'name', c.name, 'school', s.name,
@@ -3038,6 +3048,7 @@ def admin_get_parents():
             'is_new': bool(p['is_new']),
             'password_set': p['password_set_at'] is not None,
             'last_invite_at': p['last_invite_at'].isoformat() if p['last_invite_at'] else None,
+            'last_login_at': iso_utc(p['last_login_at']),
             'children': children,
         })
     db.close()

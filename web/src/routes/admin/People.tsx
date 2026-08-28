@@ -28,6 +28,27 @@ function useSchools() {
   })
 }
 
+/** "Never" for an account that has not completed a single sign-in yet — a
+ *  real state, not a loading gap — otherwise a relative day count. */
+function lastLoginLabel(iso: string | null | undefined): string {
+  if (!iso) return 'Never'
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
+  if (days <= 0) return 'Today'
+  if (days === 1) return 'Yesterday'
+  return `${days}d ago`
+}
+
+function LastLogin({ iso }: { iso: string | null | undefined }) {
+  return (
+    <span
+      className={iso ? 'text-ink-600' : 'text-ink-400'}
+      title={iso ? new Date(iso).toLocaleString() : undefined}
+    >
+      {lastLoginLabel(iso)}
+    </span>
+  )
+}
+
 /* ── Parents ─────────────────────────────────────────────────────────── */
 
 type ParentChild = {
@@ -45,6 +66,7 @@ type Parent = {
   is_new: boolean
   password_set_at: string | null
   last_invite_at: string | null
+  last_login_at: string | null
   children: ParentChild[]
 }
 
@@ -102,6 +124,13 @@ export function AdminParents() {
           invitedAt={p.last_invite_at}
         />
       ),
+    },
+    {
+      key: 'last_login_at',
+      header: 'Last login',
+      secondary: true,
+      value: (p) => (p.last_login_at ? new Date(p.last_login_at).getTime() : 0),
+      render: (p) => <LastLogin iso={p.last_login_at} />,
     },
     {
       key: 'actions',
@@ -221,6 +250,7 @@ type Counselor = {
   covers_all_schools: boolean
   password_set_at?: string | null
   last_invite_at?: string | null
+  last_login_at?: string | null
 }
 
 export function AdminCounselors() {
@@ -274,6 +304,13 @@ export function AdminCounselors() {
             ))}
           </span>
         ),
+    },
+    {
+      key: 'last_login_at',
+      header: 'Last login',
+      secondary: true,
+      value: (c) => (c.last_login_at ? new Date(c.last_login_at).getTime() : 0),
+      render: (c) => <LastLogin iso={c.last_login_at} />,
     },
     {
       key: 'actions',
