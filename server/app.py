@@ -249,6 +249,33 @@ def child_owner_ids(db, child_ids):
     return [r['user_id'] for r in rows]
 
 
+def child_owner_map(db, child_ids):
+    """child_owner_ids, for many children at once, in one round trip.
+
+    A loop calling child_owner_ids() once per child — and notify_parent()
+    once per owner inside that, each opening its own connection — is fine
+    for a single release or a single photo (at most two owners) but was
+    exactly the bug that broke the daily attendance check: with maxconn=8
+    (server/database.py) and real concurrent traffic on top of it, a
+    hundred-plus-child organization ran the pool dry mid-loop. Same shape
+    of fix _run_broadcast_pushes already uses for the same reason.
+    """
+    if not child_ids:
+        return {}
+    rows = db.execute("""
+        SELECT id AS child_id, parent_id AS user_id FROM children
+         WHERE id = ANY(%s)
+        UNION
+        SELECT cc.child_id, cc.user_id
+          FROM child_contacts cc
+         WHERE cc.child_id = ANY(%s) AND cc.user_id IS NOT NULL
+    """, (child_ids, child_ids)).fetchall()
+    out: dict[int, list[int]] = {}
+    for r in rows:
+        out.setdefault(r['child_id'], []).append(r['user_id'])
+    return out
+
+
 def counselor_school_ids(db, user_id, on_date=None):
     """The schools a counselor covers on a date, or None for "all of them".
 
@@ -8931,29 +8958,52 @@ def _run_attendance_check(organization_id):
 
     # Published and pushed after the commit, never inside it: a parent whose
     # portal is open should only be shown a card that actually exists.
+    #
+    # Batched rather than one notify_parent() call per owner: this can be a
+    # hundred-plus children, each with up to two owners, and notify_parent()
+    # opens its own connection to check the email preference every time it is
+    # called. See child_owner_map() for why that shape emptied the pool.
+    org_prefs = _org_notification_prefs(organization_id)
+    push_on = tenancy.notification_on(org_prefs, 'attendance_check')
     identity = email_identity()
     check_db = get_db()
     try:
-        for notif_id, child, message in rows:
-            # Both linked accounts, not just whichever one parent_id happens
-            # to name — see counselor_notify_parent for the same broadening.
-            for owner_id in child_owner_ids(check_db, [child['child_id']]):
-                pickup_events.publish('parent-notification', {
-                    'id': notif_id,
-                    'parent_id': owner_id,
-                    'child_id': child['child_id'],
-                    'child_name': child['child_name'],
-                    'notification_date': str(check_date),
-                    'message': message,
-                }, organization_id)
-                notify_parent(
-                    owner_id, 'attendance_check',
-                    f"📋 {identity.org_name} – Attendance Check",
-                    f"Is {child['child_name']} coming today? Tap to confirm.",
-                    '/app/home',
-                )
+        owners_by_child = child_owner_map(check_db, [c['child_id'] for _i, c, _m in rows])
+        all_owner_ids = sorted({oid for ids in owners_by_child.values() for oid in ids})
+        owner_rows = check_db.execute(
+            "SELECT id, email, email_notifications FROM users WHERE id = ANY(%s)",
+            (all_owner_ids,)
+        ).fetchall() if all_owner_ids else []
+        owners = {r['id']: r for r in owner_rows}
     finally:
         check_db.close()
+
+    if not push_on:
+        print(f"[PUSH] attendance_check is switched off for org {organization_id}; not sending")
+        return len(rows)
+
+    for notif_id, child, message in rows:
+        title = f"📋 {identity.org_name} – Attendance Check"
+        body = f"Is {child['child_name']} coming today? Tap to confirm."
+        # Both linked accounts, not just whichever one parent_id happens to
+        # name — see counselor_notify_parent for the same broadening.
+        for owner_id in owners_by_child.get(child['child_id'], []):
+            pickup_events.publish('parent-notification', {
+                'id': notif_id,
+                'parent_id': owner_id,
+                'child_id': child['child_id'],
+                'child_name': child['child_name'],
+                'notification_date': str(check_date),
+                'message': message,
+            }, organization_id)
+            send_push_to_user_async(owner_id, title, body, '/app/home')
+            owner = owners.get(owner_id)
+            if owner and owner['email_notifications'] and owner['email']:
+                send_email_async(
+                    owner['email'], title,
+                    _notification_email_html(identity, title, body, '/app/home'),
+                    identity,
+                )
     return len(rows)
 
 
