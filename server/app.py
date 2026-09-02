@@ -2433,6 +2433,19 @@ def admin_delete_school(school_id):
                 'error': f'{in_use} child{"ren" if in_use != 1 else ""} still '
                          f'enrolled at this school — move or remove them first.'
             }), 409
+        # staff_assignments.school_id is ON DELETE CASCADE (sql/57), so a school
+        # with a bus route still on the weekly template or the calendar would
+        # otherwise lose that staffing silently, the same trap sql/37 already
+        # guards against for rooms and classes.
+        staffed = db.execute(
+            "SELECT COUNT(*) AS n FROM staff_assignments WHERE school_id = %s",
+            (school_id,)
+        ).fetchone()['n']
+        if staffed:
+            return jsonify({
+                'error': f'{staffed} bus assignment{"s" if staffed != 1 else ""} '
+                         f'still point at this school — remove them first.'
+            }), 409
         cur = db.execute("DELETE FROM schools WHERE id = %s", (school_id,))
         if cur.rowcount == 0:
             return jsonify({'error': 'School not found'}), 404
@@ -5765,7 +5778,8 @@ def daily_ops_delete_care_rule(rule_id):
 # grade range must not take the staff with it.
 
 _STAFF_FIELDS = ('id', 'counselor_id', 'day_of_week', 'assignment_date',
-                 'class_session_id', 'room_id', 'time_block', 'status')
+                 'class_session_id', 'room_id', 'school_id', 'time_block',
+                 'status')
 _STAFF_COLUMNS = ', '.join(_STAFF_FIELDS)
 #: The same list qualified, for the read that joins users — both tables have an
 #: `id`, and an unqualified one is ambiguous rather than merely unclear.
@@ -5809,8 +5823,9 @@ def _staff_payload(data):
 
     class_id = data.get('class_session_id') or None
     room_id = data.get('room_id') or None
-    if bool(class_id) == bool(room_id):
-        return None, 'Assign them to a class or to a care room, not both'
+    school_id = data.get('school_id') or None
+    if sum(1 for t in (class_id, room_id, school_id) if t) != 1:
+        return None, 'Assign them to a class, a care room, or a bus — not none, not two'
 
     block = data.get('time_block') or None
     if room_id:
@@ -5818,9 +5833,10 @@ def _staff_payload(data):
             return None, ('A care room shift needs a time block: '
                           + ', '.join(daily_routing.TIME_BLOCKS))
     else:
-        # The class already carries its hours. A second time field on the row
-        # would be free to disagree with them, so it is dropped rather than
-        # rejected — the client has no reason to send it and no reason to care.
+        # A class already carries its hours, and a bus is one thing for the
+        # whole afternoon — either way a second time field on the row would be
+        # free to disagree, so it is dropped rather than rejected. The client
+        # has no reason to send it and no reason to care.
         block = None
 
     status = data.get('status') or 'assigned'
@@ -5838,6 +5854,7 @@ def _staff_payload(data):
         'assignment_date': assignment_date,
         'class_session_id': int(class_id) if class_id else None,
         'room_id': int(room_id) if room_id else None,
+        'school_id': int(school_id) if school_id else None,
         'time_block': block,
         'status': status,
     }, None
@@ -5870,7 +5887,7 @@ def _staff_target_ok(db, values):
         if actual != expected:
             return None, (f"\"{row['name']}\" runs on {expected}, "
                           f'not {actual}')
-    else:
+    elif values['room_id']:
         row = db.execute(
             "SELECT name, active FROM rooms WHERE id = %s",
             (values['room_id'],)
@@ -5879,6 +5896,13 @@ def _staff_target_ok(db, values):
             return None, 'That room does not exist'
         if not row['active']:
             return None, f"\"{row['name']}\" is archived"
+    else:
+        row = db.execute(
+            "SELECT name FROM schools WHERE id = %s",
+            (values['school_id'],)
+        ).fetchone()
+        if not row:
+            return None, 'That school does not exist'
     return True, None
 
 
@@ -5910,8 +5934,9 @@ def _staff_by_slot(db, day, on_date=None):
     """Every assignment in effect, keyed by the slot it fills.
 
     Returns (in_effect, stood_down), both {slot: [rows]} where a slot is
-    ('class', id) or ('room', id, block). With `on_date` the weekly template is
-    folded together with that date's overrides, which is R8's resolution:
+    ('class', id), ('room', id, block) or ('school', id) — a bus, which like a
+    class is one thing for the whole afternoon. With `on_date` the weekly
+    template is folded together with that date's overrides, which is R8's resolution:
     template, minus the 'removed' rows, plus the added ones. Removing one person
     leaves the colleagues the template put beside them.
 
@@ -5935,6 +5960,8 @@ def _staff_by_slot(db, day, on_date=None):
     def slot(row):
         if row['class_session_id']:
             return ('class', row['class_session_id'])
+        if row['school_id']:
+            return ('school', row['school_id'])
         return ('room', row['room_id'], row['time_block'])
 
     template, added, stood_down = {}, {}, {}
@@ -5961,7 +5988,7 @@ def _staff_by_slot(db, day, on_date=None):
     return out, stood_down
 
 
-def _staff_people(in_effect, counselors, classes, rooms):
+def _staff_people(in_effect, counselors, classes, rooms, schools):
     """The same afternoon as `blocks`, read one person at a time.
 
     This is `M-Staff`, the sheet the per-slot grid deliberately is not: one row
@@ -5994,6 +6021,14 @@ def _staff_people(in_effect, counselors, classes, rooms):
                 entry = {'kind': 'class', 'id': slot[1],
                          'label': session['name'], 'time_block': None,
                          'start_time': start, 'end_time': end}
+            elif slot[0] == 'school':
+                # A bus is one thing for the whole afternoon, with no hours of
+                # its own to compare against a class or a room — same reason a
+                # class with no hours yet lands in `unscheduled` rather than a
+                # block.
+                entry = {'kind': 'school', 'id': slot[1],
+                         'label': schools.get(slot[1]), 'time_block': None,
+                         'start_time': None, 'end_time': None}
             else:
                 start, end = daily_routing.BLOCK_BOUNDS[slot[2]]
                 entry = {'kind': 'room', 'id': slot[1],
@@ -6016,19 +6051,27 @@ def _staff_people(in_effect, counselors, classes, rooms):
         mine = entries.get(person['id'], [])
         blocks = {block: [] for block in daily_routing.TIME_BLOCKS}
         unscheduled = []
+        bus = []
         for entry in sorted(mine, key=lambda e: (e['start_time'] is None,
                                                  e['start_time'] or
                                                  daily_routing.DAY_START,
                                                  (e['label'] or '').lower())):
+            wire = {**entry,
+                    'start_time': _clock_str(entry['start_time']),
+                    'end_time': _clock_str(entry['end_time'])}
+            if entry['kind'] == 'school':
+                # A bus route has no hours to sit a block by — it happens
+                # before the afternoon's blocks even start — so it is its own
+                # list rather than sharing `unscheduled`, which means "a class
+                # is missing data", a genuinely different state.
+                bus.append(wire)
+                continue
             # A class sits in the block its hours START in, as it does in the
             # grid: its end may fall in the next one, but the block is where the
             # children arrive. A class still waiting for its hours has no block
             # to sit in, and is listed apart rather than dropped.
             block = (entry['time_block'] if entry['kind'] == 'room'
                      else daily_routing.block_of(entry['start_time']))
-            wire = {**entry,
-                    'start_time': _clock_str(entry['start_time']),
-                    'end_time': _clock_str(entry['end_time'])}
             (blocks[block] if block else unscheduled).append(wire)
 
         overlaps = [
@@ -6043,6 +6086,7 @@ def _staff_people(in_effect, counselors, classes, rooms):
             'role': person['role'],
             'blocks': blocks,
             'unscheduled': unscheduled,
+            'bus': bus,
             'overlaps': overlaps,
             'gaps': daily_routing.staff_gaps(mine),
         })
@@ -6091,6 +6135,17 @@ def daily_ops_list_staff_assignments():
         grade_counts, _ungraded = _roster_grades(db, day)
         rooms = {r['id']: r['name'] for r in db.execute(
             "SELECT id, name FROM rooms").fetchall()}
+        schools = db.execute("SELECT id, name FROM schools ORDER BY lower(name)").fetchall()
+        bus_counts = {r['school_id']: r['n'] for r in db.execute(
+            """
+            SELECT c.school_id, COUNT(*) AS n
+              FROM children c
+              JOIN registrations r ON r.child_id = c.id
+             WHERE c.active = 1 AND c.bus_rider AND r.day_of_week = %s
+             GROUP BY c.school_id
+            """,
+            (day,)
+        ).fetchall()}
         counselors = [dict(r) for r in db.execute(
             """
             SELECT id, name, role FROM users
@@ -6169,11 +6224,25 @@ def daily_ops_list_staff_assignments():
                     'out_today': out_today(('class', r['id']))}
                    for r in classes if not r['start_time']]
 
+    # Every school is a candidate bus route, regardless of headcount — unlike a
+    # class or a care room, a route is worth setting up before the roster fills
+    # in, not only once it has riders.
+    bus = [{'school_id': s['id'], 'school_name': s['name'],
+            'headcount': bus_counts.get(s['id'], 0),
+            'staff': people(('school', s['id'])),
+            'out_today': out_today(('school', s['id']))}
+           for s in schools]
+    for entry in bus:
+        if entry['headcount'] and not entry['staff']:
+            warnings.append({'code': 'bus_without_staff',
+                             'time_block': None, 'label': entry['school_name']})
+
     # The same assignments, by person. Its warnings are kept in their own array
     # rather than folded into `warnings`: that one counts places with nobody in
     # them, and a banner that says "3 places have nobody assigned" while
     # counting a double-booking among the three is simply wrong.
-    roster = _staff_people(staff, counselors, classes, rooms)
+    roster = _staff_people(staff, counselors, classes, rooms,
+                           {s['id']: s['name'] for s in schools})
     staff_warnings = []
     for person in roster:
         for clash in person['overlaps']:
@@ -6198,6 +6267,7 @@ def daily_ops_list_staff_assignments():
         'date': on_date.isoformat() if on_date else None,
         'blocks': blocks,
         'unscheduled_classes': unscheduled,
+        'bus': bus,
         'counselors': counselors,
         'people': roster,
         'warnings': warnings,
@@ -6208,7 +6278,7 @@ def daily_ops_list_staff_assignments():
 @app.route('/api/admin/staff-assignments', methods=['POST'])
 @jwt_required()
 def daily_ops_create_staff_assignment():
-    """Put someone in a class or a care room."""
+    """Put someone in a class, a care room, or on a bus."""
     if not require_admin():
         return jsonify({'error': 'Unauthorized'}), 403
     values, error = _staff_payload(request.json or {})
@@ -6225,12 +6295,12 @@ def daily_ops_create_staff_assignment():
                 f"""
                 INSERT INTO staff_assignments
                             (counselor_id, day_of_week, assignment_date,
-                             class_session_id, room_id, time_block, status,
-                             created_by)
+                             class_session_id, room_id, school_id, time_block,
+                             status, created_by)
                      VALUES (%(counselor_id)s, %(day_of_week)s,
                              %(assignment_date)s, %(class_session_id)s,
-                             %(room_id)s, %(time_block)s, %(status)s,
-                             %(created_by)s)
+                             %(room_id)s, %(school_id)s, %(time_block)s,
+                             %(status)s, %(created_by)s)
                   RETURNING {_STAFF_COLUMNS}
                 """,
                 {**values, 'created_by': _current_user_id()}
@@ -6293,7 +6363,8 @@ def _plan_for_day(db, day, on_date=None):
     children = [dict(r) for r in db.execute(
         """
         SELECT c.id, c.name, c.grade_num, c.grade_label, c.allergies,
-               c.school_id, s.name AS school_name, r.dismissal_time
+               c.school_id, s.name AS school_name, r.dismissal_time,
+               c.bus_rider
           FROM children c
           JOIN registrations r ON r.child_id = c.id
           LEFT JOIN schools s ON s.id = c.school_id
@@ -6354,6 +6425,32 @@ def _child_line(row, by_id, absent):
 
 def _by_absent_then_name(line):
     return (line['absent'], (line['name'] or '').lower())
+
+
+def _where_to_by_child(plan):
+    """Each child's first stop after the bus (§3.4's "Where to?"), by child_id.
+
+    Not a new routing rule — just the 3-4 block `_plan_for_day` already
+    computed, read once more: the class a child starts in if it begins in
+    that block, else the care room they wait in for it. Whichever comes first
+    in `plan['classes']`/`plan['care']` wins, so `setdefault` rather than
+    overwrite — a child cannot really be in both, but this is the same
+    "trust the engine's answer" stance `dismiss_to` itself takes.
+    """
+    where: dict[int, dict] = {}
+    for session in plan['classes']:
+        if daily_routing.block_of(session.get('start_time')) != '3-4':
+            continue
+        for child in session['children']:
+            where.setdefault(child['child_id'],
+                             {'kind': 'class', 'label': session['name']})
+    for group in plan['care']:
+        if group['time_block'] != '3-4':
+            continue
+        for child in group['children']:
+            where.setdefault(child['child_id'],
+                             {'kind': 'care', 'label': group['room_name']})
+    return where
 
 
 def _clock_str(value):
@@ -6538,6 +6635,11 @@ def counselor_my_day():
             return jsonify({'date': on_date.isoformat(), 'day': day,
                             'blocks': [], 'closed': False})
         plan, by_id, rooms, absent = _plan_for_day(db, day, on_date)
+        my_schools = {slot[1] for slot in mine if slot[0] == 'school'}
+        school_names = ({r['id']: r['name'] for r in db.execute(
+            "SELECT id, name FROM schools WHERE id = ANY(%s)",
+            (list(my_schools),))}
+                        if my_schools else {})
     finally:
         db.close()
 
@@ -6593,10 +6695,42 @@ def counselor_my_day():
             ],
         })
 
-    # In the order the afternoon happens. A class with no hours yet has no place
-    # in that order, so it goes last rather than being dropped.
-    blocks.sort(key=lambda b: (b['start_time'] is None, b['start_time'] or '',
-                               b['title'] or ''))
+    if my_schools:
+        # "Where to?" (§3.4): the same 3-4 block the routing engine already
+        # worked out, read once more rather than re-derived — see
+        # _where_to_by_child.
+        where_to = _where_to_by_child(plan)
+        for school_id in my_schools:
+            slot = ('school', school_id)
+            roster = sorted(
+                (c for c in by_id.values()
+                 if c['school_id'] == school_id and c['bus_rider']),
+                key=lambda c: (c['name'] or '').lower())
+            blocks.append({
+                'kind': 'bus',
+                'school_id': school_id,
+                'title': school_names.get(school_id),
+                'start_time': None,
+                'end_time': None,
+                'with': alongside(slot),
+                'children': [
+                    {**_child_line({'child_id': c['id'], 'child_name': c['name'],
+                                    'grade_label': c['grade_label'],
+                                    'dismissal_time': c['dismissal_time']},
+                                   by_id, absent),
+                     'dismiss_to': where_to.get(c['id'], {}).get('label'),
+                     'dismiss_kind': where_to.get(c['id'], {}).get('kind', 'unknown'),
+                     'chained': False}
+                    for c in roster
+                ],
+            })
+
+    # In the order the afternoon happens — the bus first, since it happens
+    # before the first of the afternoon's own blocks. A class with no hours
+    # yet has no place in that order, so it goes last rather than being
+    # dropped.
+    blocks.sort(key=lambda b: (b['kind'] != 'bus', b['start_time'] is None,
+                               b['start_time'] or '', b['title'] or ''))
     for block in blocks:
         block['children'].sort(key=_by_absent_then_name)
         block['present_count'] = sum(
@@ -6640,8 +6774,8 @@ def _block_check_target(payload):
     if not isinstance(block, dict):
         return None, 'block is required'
     kind = block.get('kind')
-    if kind not in ('class', 'room'):
-        return None, "block.kind must be 'class' or 'room'"
+    if kind not in ('class', 'room', 'school'):
+        return None, "block.kind must be 'class', 'room' or 'school'"
     try:
         ref = int(block.get('id'))
     except (TypeError, ValueError):
@@ -6690,17 +6824,19 @@ def counselor_block_checks():
         if not slots:
             return jsonify({'date': on_date.isoformat(), 'checks': []})
         class_ids = [s[1] for s in slots if s[0] == 'class']
+        school_ids = [s[1] for s in slots if s[0] == 'school']
         room_slots = [(s[1], s[2]) for s in slots if s[0] == 'room']
         rows = db.execute(
             """
-            SELECT child_id, class_session_id, room_id, time_block
+            SELECT child_id, class_session_id, room_id, school_id, time_block
               FROM block_checks
              WHERE check_date = %s
                AND (class_session_id = ANY(%s)
+                    OR school_id = ANY(%s)
                     OR (room_id, time_block) IN (
                         SELECT * FROM unnest(%s::int[], %s::text[])))
             """,
-            (on_date, class_ids,
+            (on_date, class_ids, school_ids,
              [r[0] for r in room_slots], [r[1] for r in room_slots])
         ).fetchall()
     finally:
@@ -6709,8 +6845,9 @@ def counselor_block_checks():
     return jsonify({
         'date': on_date.isoformat(),
         'checks': [
-            {'kind': 'class' if r['class_session_id'] else 'room',
-             'id': r['class_session_id'] or r['room_id'],
+            {'kind': ('class' if r['class_session_id']
+                      else 'school' if r['school_id'] else 'room'),
+             'id': r['class_session_id'] or r['school_id'] or r['room_id'],
              'time_block': r['time_block'],
              'child_id': r['child_id']}
             for r in rows
@@ -6770,7 +6907,8 @@ def counselor_set_block_checks():
             db.rollback()
             return jsonify({'error': 'That block is not yours today'}), 403
 
-        column = 'class_session_id' if kind == 'class' else 'room_id'
+        column = ('class_session_id' if kind == 'class'
+                  else 'school_id' if kind == 'school' else 'room_id')
         if present:
             # One statement over the whole list, not a loop: DbConnection has no
             # executemany, and "route all 5" has to be atomic anyway — a group

@@ -40,9 +40,10 @@ type Child = {
 }
 
 type Block = {
-  kind: 'class' | 'care'
+  kind: 'class' | 'care' | 'bus'
   class_id?: number
   room_id?: number
+  school_id?: number
   title: string | null
   start_time: string | null
   end_time: string | null
@@ -111,6 +112,9 @@ function blockRef(block: Block): BlockRef | null {
   if (block.kind === 'care' && block.room_id != null && block.time_block) {
     return { kind: 'room', id: block.room_id, time_block: block.time_block }
   }
+  if (block.kind === 'bus' && block.school_id != null) {
+    return { kind: 'school', id: block.school_id }
+  }
   return null
 }
 
@@ -150,7 +154,26 @@ function groupsFor(block: Block): Group[] {
   }
 
   for (const child of block.children) {
-    if (block.kind === 'class') {
+    if (block.kind === 'bus') {
+      // Arrival, not dismissal — there is no "parents" case coming off a bus,
+      // and no block.end_time to anchor "when" against, so the copy is its
+      // own rather than reusing the class branch's.
+      const kind =
+        child.dismiss_kind === 'class'
+          ? 'next'
+          : child.dismiss_kind === 'unknown'
+            ? 'unknown'
+            : 'care'
+      const name =
+        kind === 'unknown'
+          ? 'No destination on file'
+          : kind === 'next'
+            ? `Walk to ${child.dismiss_to}`
+            : (child.dismiss_to ?? 'Care')
+      const when =
+        kind === 'unknown' ? 'Ask the office' : 'Off the bus'
+      add(`${kind}:${name}`, { id: `${kind}:${name}`, name, when, kind }, child)
+    } else if (block.kind === 'class') {
       const kind =
         child.dismiss_kind === 'parents'
           ? 'parents'
@@ -476,7 +499,7 @@ function BlockPicker({
                 {b.title}
               </span>
               <span className="text-[0.74rem] font-bold text-ink-400">
-                {clock(b.start_time)}–{clock(b.end_time)}
+                {b.kind === 'bus' ? 'Bus' : `${clock(b.start_time)}–${clock(b.end_time)}`}
               </span>
             </span>
             {complete ? (
@@ -544,7 +567,9 @@ function BlockContent({
             {block.title}
           </h2>
           <p className="text-[0.9rem] font-bold text-ink-500">
-            {clock(block.start_time)}–{clock(block.end_time)}
+            {block.kind === 'bus'
+              ? 'Bus'
+              : `${clock(block.start_time)}–${clock(block.end_time)}`}
             {block.location && ` · ${block.location}`}
             {block.kind === 'care' && ' · Care'}
             {block.with.length > 0 &&

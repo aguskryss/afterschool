@@ -12,9 +12,10 @@ import { api } from '@/lib/api'
 export type BlockRef =
   | { kind: 'class'; id: number; time_block?: null }
   | { kind: 'room'; id: number; time_block: string }
+  | { kind: 'school'; id: number; time_block?: null }
 
 type Check = {
-  kind: 'class' | 'room'
+  kind: 'class' | 'room' | 'school'
   id: number
   time_block: string | null
   child_id: number
@@ -41,7 +42,7 @@ export function useBlockChecks(date: string | undefined) {
           checkKey(
             c.kind === 'room'
               ? { kind: 'room', id: c.id, time_block: c.time_block ?? '' }
-              : { kind: 'class', id: c.id },
+              : { kind: c.kind, id: c.id },
             c.child_id,
           ),
         ),

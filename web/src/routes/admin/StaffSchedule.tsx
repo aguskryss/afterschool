@@ -84,11 +84,20 @@ type Block = {
   rooms: RoomSlot[]
 }
 
+/** A school as a bus route — no hours of its own, unlike a class or a room. */
+type SchoolSlot = {
+  school_id: number
+  school_name: string | null
+  headcount: number
+  staff: Person[]
+  out_today: StoodDown[]
+}
+
 type Counselor = { id: number; name: string | null; role: string }
 
-/** One shift on one person's row: a class, or a care room for one block. */
+/** One shift on one person's row: a class, a care room for one block, or a bus. */
 type Entry = {
-  kind: 'class' | 'room'
+  kind: 'class' | 'room' | 'school'
   id: number
   label: string | null
   time_block: TimeBlock | null
@@ -106,6 +115,8 @@ type PersonRow = {
   blocks: Record<TimeBlock, Entry[]>
   /** Shifts on classes whose hours are still empty, so they have no column. */
   unscheduled: Entry[]
+  /** Bus routes — no hours to sit a column by, so they are their own list. */
+  bus: Entry[]
   overlaps: {
     time_block: TimeBlock | null
     places: (string | null)[]
@@ -127,16 +138,18 @@ type Schedule = {
   date: string | null
   blocks: Block[]
   unscheduled_classes: ClassSlot[]
+  bus: SchoolSlot[]
   counselors: Counselor[]
   people: PersonRow[]
-  warnings: { code: string; time_block: string; label: string | null }[]
+  warnings: { code: string; time_block: string | null; label: string | null }[]
   staff_warnings: StaffWarning[]
 }
 
-/** Which slot a row points at: a class, or a room for one block. */
+/** Which slot a row points at: a class, a room for one block, or a bus. */
 type Target =
   | { class_session_id: number }
   | { room_id: number; time_block: TimeBlock }
+  | { school_id: number }
 
 /** "16:45" as "4:45p" — how the sheets have always written it. */
 function clock(value: string | null): string {
@@ -352,7 +365,11 @@ export function AdminStaffSchedule() {
               </p>
               <p className="mt-1 text-[0.9rem] font-medium text-sun-700">
                 {gaps
-                  .map((w) => `${BLOCK_LABEL[w.time_block as TimeBlock]} ${w.label}`)
+                  .map((w) =>
+                    w.time_block
+                      ? `${BLOCK_LABEL[w.time_block as TimeBlock]} ${w.label}`
+                      : `Bus · ${w.label}`,
+                  )
                   .join(' · ')}
               </p>
             </div>
@@ -478,6 +495,31 @@ export function AdminStaffSchedule() {
           ))}
         </div>
       </div>
+
+      {/* Independent of `nothingToStaff`: a school is a candidate bus route
+          whether or not the day has any classes or care set up yet, and
+          `view` toggles how classes and rooms are read, not this. */}
+      {data && data.bus.length > 0 && (
+        <div className="mb-5">
+          <h2 className="mb-3 px-1 text-[1.05rem] font-extrabold text-ink-900">
+            Bus
+          </h2>
+          <div className="grid gap-3 lg:grid-cols-3">
+            {data.bus.map((slot) => (
+              <Slot
+                key={`s${slot.school_id}`}
+                title={slot.school_name ?? ''}
+                detail="Bus"
+                count={slot.headcount}
+                countLabel="riders"
+                staff={slot.staff}
+                outToday={slot.out_today}
+                {...slotProps({ school_id: slot.school_id }, null)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {isPending ? (
         <Skeleton className="h-72" />
@@ -728,6 +770,11 @@ function PersonLine({
           <p className="mt-1 text-[0.78rem] font-semibold text-ink-400">
             Also {person.unscheduled.map((e) => e.label).join(', ')} — no hours
             set
+          </p>
+        )}
+        {person.bus.length > 0 && (
+          <p className="mt-1 text-[0.78rem] font-semibold text-ink-400">
+            Bus: {person.bus.map((e) => e.label).join(', ')}
           </p>
         )}
       </th>

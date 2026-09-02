@@ -1140,6 +1140,19 @@ def init_db():
             ON staff_assignments (counselor_id)
     """)
 
+    # The bus as a third target (sql/57). A route, like a class, is one thing
+    # for the whole afternoon — never a time_block — so it gets the same
+    # class_block_check shape rather than being folded into it, which is what
+    # keeps the two targets distinguishable by which check fired.
+    cur.execute("ALTER TABLE staff_assignments ADD COLUMN IF NOT EXISTS school_id "
+                "INTEGER REFERENCES schools(id) ON DELETE CASCADE")
+    cur.execute("ALTER TABLE staff_assignments "
+                "DROP CONSTRAINT IF EXISTS staff_assignments_target_check")
+    _add_check(cur, 'staff_assignments', 'staff_assignments_target_check',
+               'num_nonnulls(class_session_id, room_id, school_id) = 1')
+    _add_check(cur, 'staff_assignments', 'staff_assignments_school_block_check',
+               'school_id IS NULL OR time_block IS NULL')
+
     # One row = "on this date, in this block, a counselor confirmed this child"
     # (sql/47). The §3.9 AttendanceEvent of the spec, narrowed to the two kinds
     # the My day screen produces.
@@ -1182,6 +1195,17 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_block_checks_child
             ON block_checks (child_id)
     """)
+
+    # The bus as a third confirmation target (sql/57), same shape as its
+    # staff_assignments counterpart above.
+    cur.execute("ALTER TABLE block_checks ADD COLUMN IF NOT EXISTS school_id "
+                "INTEGER REFERENCES schools(id) ON DELETE CASCADE")
+    cur.execute("ALTER TABLE block_checks "
+                "DROP CONSTRAINT IF EXISTS block_checks_target_check")
+    _add_check(cur, 'block_checks', 'block_checks_target_check',
+               'num_nonnulls(class_session_id, room_id, school_id) = 1')
+    _add_check(cur, 'block_checks', 'block_checks_school_block_check',
+               'school_id IS NULL OR time_block IS NULL')
 
     # An upload parses into rows here and writes nothing to children until an
     # admin confirms, so the numbers they approved and the numbers that commit
@@ -1292,6 +1316,7 @@ def init_db():
     for name, target, extra in (
         ('class_unique', 'class_session_id', ''),
         ('room_unique', 'room_id', 'time_block,'),
+        ('school_unique', 'school_id', ''),
     ):
         cur.execute(f"""
             CREATE UNIQUE INDEX IF NOT EXISTS staff_assignments_{name}
@@ -1314,6 +1339,7 @@ def init_db():
     for name, cols in (
         ('class_unique', 'class_session_id'),
         ('room_unique', 'room_id, time_block'),
+        ('school_unique', 'school_id'),
     ):
         target = cols.split(',')[0]
         cur.execute(f"""
