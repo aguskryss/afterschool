@@ -56,6 +56,9 @@ CORE_PREFIXES = (
     '/api/parent/children',
     '/api/parent/notifications',
     '/api/parent/stream',
+    # A parent's own opt-in to email as a second channel — the same footing
+    # as changing a password, not a module a JCC buys.
+    '/api/parent/email-notifications',
     '/api/counselor/roster',
     '/api/counselor/attendance',
     # Recording where a child is, which is the same act as the attendance tap

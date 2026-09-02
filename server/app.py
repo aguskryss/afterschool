@@ -1113,6 +1113,21 @@ def send_admin_invitation(user_email, user_name, setup_url, identity):
         identity,
     )
 
+
+def _notification_email_html(identity, title, body, url):
+    """The email twin of a parent push — same title and body, wrapped in the
+    organization's own branding.
+
+    `body` is escaped: unlike an invitation's fixed copy, this carries text a
+    staff member typed (an office reply, a broadcast) straight into an HTML
+    email, and unescaped that is a way to inject markup into every parent's
+    inbox.
+    """
+    return _email_shell(identity, title, f"""
+            <p style="color:#334155;font-size:15px;line-height:1.6;">{_escape(body)}</p>
+            {_cta(identity, f"{EMAIL_CONFIG['base_url']}{url}", 'Open in the app')}
+    """)
+
 # ─── AUTH ROUTES ────────────────────────────────────────────────────────────
 
 @app.route('/api/health', methods=['GET'])
@@ -1445,6 +1460,51 @@ def get_2fa_status():
 
 
 # ─── PARENT ROUTES ──────────────────────────────────────────────────────────
+
+@app.route('/api/parent/email-notifications', methods=['GET'])
+@jwt_required()
+def parent_get_email_notifications():
+    """A parent's own opt-in to email as a second notification channel.
+
+    Same footing as changing a password — a preference about the account,
+    not a module a JCC buys — so it stays core (tests/test_module_access.py).
+    """
+    claims = get_jwt()
+    if claims.get('role') != 'parent':
+        return jsonify({'error': 'Unauthorized'}), 403
+    user_id = get_jwt_identity()
+    db = get_db()
+    try:
+        row = db.execute(
+            "SELECT email, email_notifications FROM users WHERE id = %s",
+            (user_id,)
+        ).fetchone()
+    finally:
+        db.close()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify({'enabled': bool(row['email_notifications']), 'email': row['email']})
+
+
+@app.route('/api/parent/email-notifications', methods=['PATCH'])
+@jwt_required()
+def parent_set_email_notifications():
+    claims = get_jwt()
+    if claims.get('role') != 'parent':
+        return jsonify({'error': 'Unauthorized'}), 403
+    user_id = get_jwt_identity()
+    enabled = bool((request.json or {}).get('enabled'))
+    db = get_db()
+    try:
+        db.execute(
+            "UPDATE users SET email_notifications = %s WHERE id = %s",
+            (enabled, user_id)
+        )
+        db.commit()
+    finally:
+        db.close()
+    return jsonify({'enabled': enabled})
+
 
 @app.route('/api/parent/children', methods=['GET'])
 @jwt_required()
@@ -8012,11 +8072,29 @@ def notify_parent(user_id, kind, title, body, url='/app/', tag=None, pickup_id=N
 
     Staff notifications do not come through here. A counselor being told about
     a pickup is the product working, not a courtesy a JCC tunes.
+
+    Email is the second channel, gated by the organization switch above AND
+    the parent's own opt-in (users.email_notifications, sql/59) — push needs
+    no such opt-in check because a browser subscription already is one.
     """
     if not tenancy.notification_on(_org_notification_prefs(_ambient_org_id()), kind):
         print(f"[PUSH] {kind} is switched off for this organization; not sending")
         return
     send_push_to_user_async(user_id, title, body, url, tag, pickup_id)
+
+    db = get_db()
+    try:
+        row = db.execute(
+            "SELECT email, email_notifications FROM users WHERE id = %s",
+            (user_id,)
+        ).fetchone()
+        if row and row['email_notifications'] and row['email']:
+            identity = email_identity(db)
+            send_email_async(row['email'], title,
+                             _notification_email_html(identity, title, body, url),
+                             identity)
+    finally:
+        db.close()
 
 
 def send_push_to_user_async(user_id, title, body, url='/app/', tag=None, pickup_id=None):
@@ -8333,7 +8411,13 @@ def admin_send_message():
             # reads push_subscriptions with no tenant pinned, RLS returns
             # nothing, and the broadcast reports "attempted=N failed=0" having
             # delivered to nobody.
-            args=(msg_id, push_jobs, push_title, push_body, current_org_id()),
+            #
+            # subject/body travel too, separately from push_title/push_body:
+            # email has no 100-character reason to truncate the message, so
+            # the worker sends the full thing there while push keeps the
+            # short version.
+            args=(msg_id, push_jobs, push_title, push_body, subject, body,
+                  current_org_id()),
             daemon=True,
         ).start()
 
@@ -8344,8 +8428,9 @@ def admin_send_message():
     })
 
 
-def _run_broadcast_pushes(broadcast_id, jobs, title, body, organization_id):
-    """Sequentially deliver push notifications for one admin broadcast.
+def _run_broadcast_pushes(broadcast_id, jobs, title, body, subject, full_body,
+                          organization_id):
+    """Sequentially deliver push AND email for one admin broadcast.
 
     Runs in a single daemon thread, calling the synchronous
     send_push_to_user (which itself loops over a recipient's subscriptions
@@ -8356,6 +8441,12 @@ def _run_broadcast_pushes(broadcast_id, jobs, title, body, organization_id):
     has no flask.g; without the pin below, every read of push_subscriptions is
     filtered by RLS to nothing and the whole broadcast delivers to nobody while
     reporting success. See send_push_to_user_async.
+
+    Email does not go through notify_parent() — broadcast never has, on
+    purpose (see the module docstring above this function's neighbours) — but
+    it is the same second channel, gated by the same organization switch
+    checked once below plus each parent's own email_notifications opt-in,
+    checked here in one query rather than one per recipient.
     """
     database_module.set_thread_organization(organization_id)
     # Checked once for the whole batch rather than per recipient: it is one
@@ -8379,6 +8470,29 @@ def _run_broadcast_pushes(broadcast_id, jobs, title, body, organization_id):
             failed += 1
             print(f"[MSG_PUSH] Broadcast {broadcast_id}: error pushing to user {pid}: {type(e).__name__}: {e}")
     print(f"[MSG_PUSH] Broadcast {broadcast_id}: worker done — attempted={sent} failed={failed}")
+
+    pids = [pid for pid, _pm_id in jobs]
+    db = get_db()
+    try:
+        opted_in = db.execute(
+            "SELECT id, email FROM users WHERE id = ANY(%s) AND email_notifications",
+            (pids,)
+        ).fetchall()
+        if opted_in:
+            # One identity for the whole batch — it does not vary by
+            # recipient, and email_identity() must run in this pinned thread
+            # rather than inside send_email_async's own unpinned one.
+            identity = email_identity(db)
+            html = _notification_email_html(
+                identity, f"📬 {subject}", full_body, '/app/inbox')
+            e_sent = 0
+            for row in opted_in:
+                if row['email']:
+                    send_email_async(row['email'], subject, html, identity)
+                    e_sent += 1
+            print(f"[MSG_EMAIL] Broadcast {broadcast_id}: queued {e_sent} email(s)")
+    finally:
+        db.close()
 
 
 def _run_attendance_check(organization_id):

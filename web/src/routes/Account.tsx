@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 import { hasModule, readSession } from '@/lib/auth'
 import { Avatar, Button, Card, Field, Pill } from '@/components/ui'
 import { PushCard } from '@/components/PushCard'
+import { EmailNotificationsCard } from '@/components/EmailNotificationsCard'
 import { TwoFactorCard } from '@/components/TwoFactorCard'
 import { signOut } from '@/lib/signout'
 
@@ -100,6 +101,8 @@ export function Account() {
         )}
 
       <PushCard />
+
+      {session?.role === 'parent' && <EmailNotificationsCard />}
 
       {twoFactor && <TwoFactorCard />}
 

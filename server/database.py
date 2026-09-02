@@ -602,6 +602,13 @@ def init_db():
     # rather than treating as a missing value to backfill.
     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ")
 
+    # A parent's own opt-in to a second notification channel, on top of the
+    # organization-level switches in notification_settings — see
+    # sql/59_add_email_notifications.sql. FALSE for everyone until they turn
+    # it on in Account.
+    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_notifications "
+                "BOOLEAN NOT NULL DEFAULT FALSE")
+
     # Per-school roster split declaration. 'grade' = K-1st / 2-5th split,
     # 'torah' = Torah / Regular split, 'none' = no split. This is the
     # authoritative source for the counselor view; the roster parser also
