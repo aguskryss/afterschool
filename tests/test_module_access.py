@@ -61,6 +61,9 @@ CORE_PREFIXES = (
     # Recording where a child is, which is the same act as the attendance tap
     # and belongs to the same side of the billing boundary.
     '/api/counselor/child-status',
+    # The admin's own version of the same write — resolving a flag from the
+    # Live Board or the office rather than the school gate.
+    '/api/admin/child-status',
     '/api/counselor/notify-parent',
     '/api/counselor/notification-responses',
     '/api/admin/stats',

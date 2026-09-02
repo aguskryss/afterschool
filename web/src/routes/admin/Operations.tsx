@@ -414,6 +414,117 @@ function MarkAbsent({ date }: { date: string }) {
   )
 }
 
+/**
+ * Marking a child present from the office rather than the school gate — a
+ * parent calls to say their kid showed up after all, or a Live Board flag
+ * gets sorted out over the phone. Calcado de MarkAbsent above it: same
+ * search-and-confirm shape, same roster source, different endpoint.
+ *
+ * Writes `status: 'picked_up'`, the state the app calls "in the building"
+ * everywhere else (STATUS_LABEL in lib/attendance.ts) — the same status a
+ * counselor's own tap sets, through /api/admin/child-status rather than
+ * /api/counselor/child-status, which is closed to admins.
+ */
+function MarkPresent({ date }: { date: string }) {
+  const qc = useQueryClient()
+  const [query, setQuery] = useState('')
+  const [picked, setPicked] = useState<ChildOption | null>(null)
+
+  const { data } = useQuery({
+    queryKey: ['admin', 'children', 'active-lite'],
+    queryFn: () =>
+      api<{ children: ChildOption[] }>('/api/admin/children?active=1'),
+    staleTime: 60_000,
+  })
+
+  const q = query.trim()
+  const matches = useMemo(
+    () =>
+      q
+        ? (data?.children ?? []).filter((c) => matchesName(c.name, q)).slice(0, 8)
+        : [],
+    [data, q],
+  )
+
+  const mark = useMutation({
+    mutationFn: (childId: number) =>
+      api('/api/admin/child-status', {
+        method: 'POST',
+        body: { child_id: childId, date, status: 'picked_up' },
+      }),
+    onSuccess: () => {
+      setPicked(null)
+      setQuery('')
+      void qc.invalidateQueries({ queryKey: ['admin', 'absences', date] })
+      void qc.invalidateQueries({ queryKey: ['admin', 'attendance', date] })
+      void qc.invalidateQueries({ queryKey: ['admin', 'operations'] })
+    },
+    onError: (e) =>
+      notifyError(
+        'Could not mark present',
+        e instanceof ApiError ? e.message : undefined,
+      ),
+  })
+
+  return (
+    <Card className="mb-4 p-3">
+      <p className="mb-2 text-[0.85rem] font-bold text-ink-700">
+        Mark someone present
+      </p>
+      {picked ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[0.88rem] font-semibold text-ink-800">
+            {picked.name}
+            <span className="font-medium text-ink-400"> · {picked.school}</span>
+            {' — present on '}
+            {date}
+          </span>
+          <Button
+            size="sm"
+            loading={mark.isPending}
+            onClick={() => mark.mutate(picked.id)}
+          >
+            Confirm
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setPicked(null)}>
+            Cancel
+          </Button>
+        </div>
+      ) : (
+        <div className="relative">
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search a child by name…"
+            aria-label="Search a child to mark present"
+            className="h-10 w-full max-w-sm appearance-none rounded-full border-2 border-canvas-200 bg-white px-4 text-[0.9rem] font-medium text-ink-900 outline-none [&::-webkit-search-cancel-button]:appearance-none focus:border-sky-500"
+          />
+          {matches.length > 0 && (
+            <ul className="absolute z-10 mt-1 w-full max-w-sm overflow-hidden rounded-2xl border border-canvas-200 bg-white shadow-soft">
+              {matches.map((c) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPicked(c)
+                      setQuery('')
+                    }}
+                    className="flex w-full items-center justify-between px-4 py-2 text-left text-[0.88rem] font-medium transition-colors hover:bg-canvas-100"
+                  >
+                    <span className="font-bold text-ink-900">{c.name}</span>
+                    <span className="text-ink-400">{c.school}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 export function AdminAbsences() {
   const [date, setDate] = useState(() => toIso(new Date()))
   const { data, isPending } = useQuery({
@@ -442,6 +553,7 @@ export function AdminAbsences() {
         Absences
       </h1>
       <DayPicker date={date} onChange={setDate} />
+      <MarkPresent date={date} />
       <MarkAbsent date={date} />
       <DataTable
         rows={rows}

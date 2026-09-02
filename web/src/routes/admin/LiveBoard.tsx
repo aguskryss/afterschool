@@ -1,10 +1,11 @@
 import { useEffect } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { School, TriangleAlert, UserRound } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
 import { readSession } from '@/lib/auth'
+import { notifyError } from '@/lib/confirm'
 import { STATUS_LABEL, STATUS_TONE, type ChildStatus } from '@/lib/attendance'
-import { Card, EmptyState, Pill, Skeleton } from '@/components/ui'
+import { Button, Card, EmptyState, Pill, Skeleton } from '@/components/ui'
 
 type Counselor = { id: number; name: string; permanent: boolean }
 
@@ -59,6 +60,43 @@ function useBoardStream(onChange: () => void) {
     return () => source.close()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+}
+
+/**
+ * Resolving a flagged child right from the board — the office found them, or
+ * whatever the note described got sorted out. One tap, no confirm dialog:
+ * nothing a parent receives, same reasoning as admin_mark_absence.
+ *
+ * Writes `status: 'picked_up'` through /api/admin/child-status. The child
+ * drops off this list on its own once that lands — the backend's `flagged`
+ * query already excludes anyone with on_bus = 1 (server/app.py:7251).
+ */
+function MarkPresentButton({ childId }: { childId: number }) {
+  const qc = useQueryClient()
+  const mark = useMutation({
+    mutationFn: () =>
+      api('/api/admin/child-status', {
+        method: 'POST',
+        body: { child_id: childId, status: 'picked_up' },
+      }),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: ['admin', 'operations'] }),
+    onError: (e) =>
+      notifyError(
+        'Could not mark present',
+        e instanceof ApiError ? e.message : undefined,
+      ),
+  })
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      loading={mark.isPending}
+      onClick={() => mark.mutate()}
+    >
+      Mark present
+    </Button>
+  )
 }
 
 function Stat({
@@ -159,11 +197,14 @@ export function AdminLiveBoard() {
                         {f.note}
                       </span>
                     )}
-                    {f.reported_by && (
-                      <span className="ms-auto text-[0.8rem] font-semibold text-ink-400">
-                        {f.reported_by}
-                      </span>
-                    )}
+                    <span className="ms-auto flex items-center gap-3">
+                      {f.reported_by && (
+                        <span className="text-[0.8rem] font-semibold text-ink-400">
+                          {f.reported_by}
+                        </span>
+                      )}
+                      <MarkPresentButton childId={f.child_id} />
+                    </span>
                   </li>
                 ))}
               </ul>

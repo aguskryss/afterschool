@@ -7537,6 +7537,67 @@ def counselor_get_attendance():
         } for r in records
     })
 
+def _child_status_payload(data):
+    """Validate a child-status write shared by the counselor and admin
+    endpoints. Returns (child_id, status, note, date_str, error_response).
+    """
+    child_id = data.get('child_id')
+    status = data.get('status')
+    note = (data.get('note') or '').strip() or None
+
+    if not child_id:
+        return None, None, None, None, (jsonify({'error': 'child_id required'}), 400)
+    settable = [s for s in CHILD_STATUSES if s != STATUS_CHECKED_OUT]
+    if status not in settable:
+        return None, None, None, None, (jsonify({
+            'error': f"status must be one of: {', '.join(settable)}"
+        }), 400)
+    if status == STATUS_ISSUE and not note:
+        # An "issue" with no description is a flag nobody can act on.
+        return None, None, None, None, (jsonify({
+            'error': 'An issue needs a note saying what it is'
+        }), 400)
+
+    date_str = data.get('date') or today_for_org()
+    try:
+        date_str = parse_date(date_str)
+    except ValueError:
+        return None, None, None, None, (jsonify({
+            'error': 'Invalid date format. Use YYYY-MM-DD.'
+        }), 400)
+
+    return child_id, status, note, date_str, None
+
+
+def _write_child_status(db, child_id, school_id, date_str, status, note, actor_id):
+    """Record where one child is, on one date. Shared INSERT for the
+    counselor's and the admin's own child-status endpoints — one write path
+    so the two can never come to record this differently.
+    """
+    on_bus = _ON_BUS_FOR_STATUS[status]
+    db.execute("""
+        INSERT INTO attendance_records
+            (child_id, school_id, attendance_date, on_bus, submitted_by,
+             checked_in_at, status, status_at, status_by, status_note)
+        VALUES (%s, %s, %s, %s, %s,
+                CASE WHEN %s = 1 THEN CURRENT_TIMESTAMP END,
+                %s, CURRENT_TIMESTAMP, %s, %s)
+        ON CONFLICT(child_id, attendance_date) DO UPDATE SET
+            on_bus = excluded.on_bus,
+            submitted_by = excluded.submitted_by,
+            submitted_at = CURRENT_TIMESTAMP,
+            checked_in_at = CASE
+                WHEN excluded.on_bus = 0 THEN NULL
+                ELSE COALESCE(attendance_records.checked_in_at, CURRENT_TIMESTAMP)
+            END,
+            status = excluded.status,
+            status_at = CURRENT_TIMESTAMP,
+            status_by = excluded.status_by,
+            status_note = excluded.status_note
+    """, (child_id, school_id, date_str, on_bus, actor_id,
+          on_bus, status, actor_id, note))
+
+
 @app.route('/api/counselor/child-status', methods=['POST'])
 @jwt_required()
 def counselor_set_child_status():
@@ -7560,26 +7621,9 @@ def counselor_set_child_status():
 
     user_id = get_jwt_identity()
     data = request.json or {}
-    child_id = data.get('child_id')
-    status = data.get('status')
-    note = (data.get('note') or '').strip() or None
-
-    if not child_id:
-        return jsonify({'error': 'child_id required'}), 400
-    settable = [s for s in CHILD_STATUSES if s != STATUS_CHECKED_OUT]
-    if status not in settable:
-        return jsonify({
-            'error': f"status must be one of: {', '.join(settable)}"
-        }), 400
-    if status == STATUS_ISSUE and not note:
-        # An "issue" with no description is a flag nobody can act on.
-        return jsonify({'error': 'An issue needs a note saying what it is'}), 400
-
-    date_str = data.get('date') or today_for_org()
-    try:
-        date_str = parse_date(date_str)
-    except ValueError:
-        return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD.'}), 400
+    child_id, status, note, date_str, error = _child_status_payload(data)
+    if error:
+        return error
 
     db = get_db()
     try:
@@ -7601,31 +7645,63 @@ def counselor_set_child_status():
                 'error': 'This child has already been released to a parent.'
             }), 409
 
-        on_bus = _ON_BUS_FOR_STATUS[status]
-        db.execute("""
-            INSERT INTO attendance_records
-                (child_id, school_id, attendance_date, on_bus, submitted_by,
-                 checked_in_at, status, status_at, status_by, status_note)
-            VALUES (%s, %s, %s, %s, %s,
-                    CASE WHEN %s = 1 THEN CURRENT_TIMESTAMP END,
-                    %s, CURRENT_TIMESTAMP, %s, %s)
-            ON CONFLICT(child_id, attendance_date) DO UPDATE SET
-                on_bus = excluded.on_bus,
-                submitted_by = excluded.submitted_by,
-                submitted_at = CURRENT_TIMESTAMP,
-                checked_in_at = CASE
-                    WHEN excluded.on_bus = 0 THEN NULL
-                    ELSE COALESCE(attendance_records.checked_in_at, CURRENT_TIMESTAMP)
-                END,
-                status = excluded.status,
-                status_at = CURRENT_TIMESTAMP,
-                status_by = excluded.status_by,
-                status_note = excluded.status_note
-        """, (child_id, child['school_id'], date_str, on_bus, user_id,
-              on_bus, status, user_id, note))
+        _write_child_status(db, child_id, child['school_id'], date_str,
+                            status, note, user_id)
         db.commit()
     except Exception as e:
         print(f"[ERROR] counselor_set_child_status: {e}")
+        return jsonify({'error': 'Could not save that status'}), 500
+    finally:
+        db.close()
+
+    _publish_headcount(date_str)
+    return jsonify({'child_id': child_id, 'status': status, 'date': date_str})
+
+
+@app.route('/api/admin/child-status', methods=['POST'])
+@jwt_required()
+def admin_set_child_status():
+    """Mark where one child is — the admin's own version of the counselor
+    tap, for the child an admin resolves from the office rather than the
+    school gate: a parent calls to say their kid showed up after all, or a
+    `not_found`/`issue` flag on the Live Board gets sorted out.
+
+    No `counselor_covers_child` check: an admin is not scoped to a set of
+    schools the way a counselor is, and RLS already keeps this inside their
+    own organization. Otherwise the same rules as the counselor endpoint —
+    same settable statuses, same note requirement for `issue`, same refusal
+    once a child has been released to a parent.
+    """
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    user_id = _current_user_id()
+    data = request.json or {}
+    child_id, status, note, date_str, error = _child_status_payload(data)
+    if error:
+        return error
+
+    db = get_db()
+    try:
+        child = db.execute("SELECT school_id FROM children WHERE id = %s",
+                           (child_id,)).fetchone()
+        if not child:
+            return jsonify({'error': 'Child not found'}), 404
+
+        released = db.execute("""
+            SELECT checked_out_at FROM attendance_records
+             WHERE child_id = %s AND attendance_date = %s
+        """, (child_id, date_str)).fetchone()
+        if released and released['checked_out_at']:
+            return jsonify({
+                'error': 'This child has already been released to a parent.'
+            }), 409
+
+        _write_child_status(db, child_id, child['school_id'], date_str,
+                            status, note, user_id)
+        db.commit()
+    except Exception as e:
+        print(f"[ERROR] admin_set_child_status: {e}")
         return jsonify({'error': 'Could not save that status'}), 500
     finally:
         db.close()
