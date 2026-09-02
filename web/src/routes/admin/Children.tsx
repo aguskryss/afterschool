@@ -125,6 +125,34 @@ type Child = {
 }
 
 /**
+ * Every guardian on file, Contact #1 always included.
+ *
+ * `contacts` comes straight from child_contacts, which only has both rows
+ * for a roster-imported child — one added by hand starts with none at all,
+ * and can pick up a priority-2 row (via "Add a second guardian") with no
+ * priority-1 row ever existing. Contact #1 is synthesized from
+ * parent_name/parent_email/parent_phone whenever child_contacts doesn't
+ * carry it, rather than only when the list is empty, so it never drops out
+ * just because Contact #2 showed up.
+ */
+function guardianList(c: Child & { parent_phone?: string | null }): Contact[] {
+  if (c.contacts.some((g) => g.priority === 1)) return c.contacts
+  return [
+    {
+      priority: 1,
+      name: c.parent_name,
+      email: c.parent_email,
+      phone: c.parent_phone ?? null,
+      user_id: null,
+      password_set: null,
+      invited_at: null,
+      last_login_at: null,
+    },
+    ...c.contacts,
+  ]
+}
+
+/**
  * What a counselor recorded, plus the three the roster derives on its own.
  * The first six are the same words the counselor's screen uses — they were
  * different once (`in_building` here, `picked_up` there) and two names for
@@ -299,18 +327,12 @@ export function AdminChildren() {
       key: 'guardians',
       header: 'Guardians',
       secondary: true,
-      value: (c) =>
-        c.contacts.length
-          ? c.contacts.map((g) => g.name).join(', ')
-          : c.parent_name,
+      value: (c) => guardianList(c).map((g) => g.name).join(', '),
       render: (c) => (
         <span className="flex flex-col gap-0.5 text-[0.85rem]">
-          {(c.contacts.length
-            ? c.contacts.map((g) => g.name)
-            : [c.parent_name]
-          ).map((n) => (
-            <span key={n} className="font-semibold text-ink-700">
-              {n}
+          {guardianList(c).map((g) => (
+            <span key={g.priority} className="font-semibold text-ink-700">
+              {g.name}
             </span>
           ))}
         </span>
@@ -1536,20 +1558,7 @@ export function AdminChildProfile() {
     )
   }
 
-  const guardians = c.contacts.length
-    ? c.contacts
-    : [
-        {
-          priority: 1,
-          name: c.parent_name,
-          email: c.parent_email,
-          phone: c.parent_phone,
-          user_id: null,
-          password_set: null,
-          invited_at: null,
-          last_login_at: null,
-        },
-      ]
+  const guardians = guardianList(c)
   const secondGuardian = guardians.find((g) => g.priority === 2) ?? null
 
   return (
