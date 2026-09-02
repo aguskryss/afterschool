@@ -91,6 +91,13 @@ type Contact = {
   name: string
   phone: string | null
   email: string | null
+  /** Set once Contact #2 has been linked to a portal login — see
+   * server/database.py's comment on child_contacts. Always null for
+   * Contact #1, whose account is children.parent_id, not this column. */
+  user_id: number | null
+  password_set: boolean | null
+  invited_at: string | null
+  last_login_at: string | null
 }
 
 type Child = {
@@ -1310,6 +1317,176 @@ function ApprovedPickups({ childId }: { childId: number }) {
   )
 }
 
+/**
+ * Giving Contact #2 a portal login of their own, from the child's own
+ * profile — the read side of this (their name/phone/email) has shown up
+ * here for a while; this is the write side that was never built.
+ *
+ * Three states: no second guardian on file at all (roster import never saw
+ * one, or the child was added by hand) → a form to add one; on file but not
+ * linked → "Invite as parent"; linked → their own account status, with a
+ * way to take the access back without deleting them as a contact.
+ */
+function SecondGuardianControls({
+  childId,
+  guardian,
+}: {
+  childId: number
+  guardian: Contact | null
+}) {
+  const qc = useQueryClient()
+  const key = ['admin', 'child', String(childId)]
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [email, setEmail] = useState('')
+  const [error, setError] = useState('')
+
+  const save = useMutation({
+    mutationFn: () =>
+      api(`/api/admin/children/${childId}/second-guardian`, {
+        method: 'PUT',
+        body: { name, phone, email },
+      }),
+    onSuccess: () => {
+      setEditing(false)
+      setError('')
+      void qc.invalidateQueries({ queryKey: key })
+    },
+    onError: (e) =>
+      setError(e instanceof ApiError ? e.message : 'Could not save that.'),
+  })
+
+  const invite = useMutation({
+    mutationFn: () =>
+      api<{ message: string }>(
+        `/api/admin/children/${childId}/second-guardian/invite`,
+        { method: 'POST' },
+      ),
+    onSuccess: (result) => {
+      void qc.invalidateQueries({ queryKey: key })
+      window.alert(result.message)
+    },
+    onError: (e) =>
+      notifyError(
+        'Could not invite',
+        e instanceof ApiError ? e.message : undefined,
+      ),
+  })
+
+  const removeAccess = useMutation({
+    mutationFn: () =>
+      api(`/api/admin/children/${childId}/second-guardian/access`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: key }),
+    onError: (e) =>
+      notifyError(
+        'Could not remove access',
+        e instanceof ApiError ? e.message : undefined,
+      ),
+  })
+
+  if (!guardian) {
+    if (!editing) {
+      return (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="mt-3 flex items-center gap-1.5 rounded-2xl px-2 py-1.5 text-[0.82rem] font-bold text-ink-600 transition-colors hover:bg-canvas-100 active:bg-canvas-200"
+        >
+          <Plus className="size-4" strokeWidth={2.8} />
+          Add a second guardian
+        </button>
+      )
+    }
+    return (
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (name.trim()) save.mutate()
+        }}
+        className="mt-3 flex flex-col gap-2"
+      >
+        <Field
+          label="Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          autoFocus
+        />
+        <Field
+          label="Phone"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+        />
+        <Field
+          label="Email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          hint="Needed to invite them as a parent."
+        />
+        {error && (
+          <p className="text-[0.82rem] font-semibold text-berry-600">
+            {error}
+          </p>
+        )}
+        <div className="flex gap-2">
+          <Button
+            type="submit"
+            size="sm"
+            loading={save.isPending}
+            disabled={!name.trim()}
+          >
+            Save
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setEditing(false)}
+          >
+            Cancel
+          </Button>
+        </div>
+      </form>
+    )
+  }
+
+  if (guardian.user_id) {
+    return (
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Pill status="leaf">Linked</Pill>
+        <span className="text-[0.78rem] font-medium text-ink-400">
+          {guardian.password_set
+            ? 'Password set'
+            : 'Invited, not signed in yet'}
+          {guardian.last_login_at &&
+            ` · last login ${new Date(guardian.last_login_at).toLocaleDateString()}`}
+        </span>
+        <Button
+          size="sm"
+          variant="outline"
+          loading={removeAccess.isPending}
+          onClick={() => removeAccess.mutate()}
+        >
+          <Trash2 className="size-3.5" strokeWidth={2.4} />
+          Remove access
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-2">
+      <Button size="sm" loading={invite.isPending} onClick={() => invite.mutate()}>
+        <Send className="size-3.5" strokeWidth={2.6} />
+        Invite as parent
+      </Button>
+    </div>
+  )
+}
+
 export function AdminChildProfile() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -1367,8 +1544,13 @@ export function AdminChildProfile() {
           name: c.parent_name,
           email: c.parent_email,
           phone: c.parent_phone,
+          user_id: null,
+          password_set: null,
+          invited_at: null,
+          last_login_at: null,
         },
       ]
+  const secondGuardian = guardians.find((g) => g.priority === 2) ?? null
 
   return (
     <div className="mx-auto w-full max-w-4xl">
@@ -1479,14 +1661,21 @@ export function AdminChildProfile() {
               </li>
             ))}
           </ul>
-          {/* Only contact 1 owns a portal login today, so this is the account
-              an admin would go to for invitations or a password reset. */}
+          {/* Contact #1's account — the one children.parent_id has always
+              pointed at. */}
           <Link
             to="/parents"
             className="mt-4 inline-block text-[0.85rem] font-bold text-sky-600 hover:text-sky-700"
           >
             Open the parent account →
           </Link>
+
+          <div className="mt-4 border-t border-canvas-200 pt-3">
+            <p className="text-[0.78rem] font-bold tracking-wide text-ink-400 uppercase">
+              Second guardian's access
+            </p>
+            <SecondGuardianControls childId={c.id} guardian={secondGuardian} />
+          </div>
         </Section>
 
         <Section title="Details">

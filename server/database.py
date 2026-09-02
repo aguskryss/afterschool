@@ -960,8 +960,9 @@ def init_db():
     """)
 
     # children.parent_id is untouched and still means "the account whose parent
-    # portal shows this child" — it points at contact 1. user_id here is the
-    # seam for the day contact 2 gets a portal too; nothing fills it yet.
+    # portal shows this child" — it points at contact 1. user_id here was the
+    # seam for the day contact 2 gets a portal too (sql/61 is that day: every
+    # parent-facing request now also checks this column).
     cur.execute("""
         CREATE TABLE IF NOT EXISTS child_contacts (
             id SERIAL PRIMARY KEY,
@@ -974,6 +975,12 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(child_id, priority)
         )
+    """)
+    # Partial: most rows (every priority-1 row, and any unlinked priority-2
+    # row) have user_id NULL and are never looked up by it.
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_child_contacts_user
+            ON child_contacts(user_id) WHERE user_id IS NOT NULL
     """)
 
     # Rows rather than ten columns: the real cells hold a date, or 'x', or

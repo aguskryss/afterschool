@@ -208,6 +208,46 @@ _ASSIGNMENT_IN_EFFECT = """(
     AND (cs.effective_to IS NULL OR cs.effective_to >= %s::date)
 )"""
 
+# A child belongs to a user either as the primary account (children.parent_id,
+# the roster's Contact #1 — required, ON DELETE CASCADE) or as a linked
+# second contact (child_contacts.user_id, Contact #2 — optional, ON DELETE
+# SET NULL). See the comment on child_contacts in server/database.py for why
+# the second seam exists. `c` must be the alias of a `children` row in scope;
+# every use takes the same %s twice (user_id, user_id).
+_CHILD_BELONGS_TO_USER = """(
+    c.parent_id = %s
+    OR EXISTS (SELECT 1 FROM child_contacts cc2
+                WHERE cc2.child_id = c.id AND cc2.user_id = %s)
+)"""
+
+
+def parent_owns_child(db, user_id, child_id):
+    """Whether this user may act on this child — as Contact #1 or a linked
+    Contact #2. RLS already keeps the query inside one organization; this is
+    the ownership check within it."""
+    return db.execute(
+        f"SELECT 1 FROM children c WHERE c.id = %s AND {_CHILD_BELONGS_TO_USER}",
+        (child_id, user_id, user_id),
+    ).fetchone() is not None
+
+
+def child_owner_ids(db, child_ids):
+    """Every user who may act as a parent for any of these children — the
+    account children.parent_id points at, plus a linked Contact #2, if any.
+    Deduped. Used everywhere a single child's `parent_id` used to be handed
+    straight to notify_parent() or a pickup_events.publish() payload — now
+    both accounts hear about it, not just Contact #1.
+    """
+    if not child_ids:
+        return []
+    rows = db.execute("""
+        SELECT DISTINCT parent_id AS user_id FROM children WHERE id = ANY(%s)
+        UNION
+        SELECT DISTINCT user_id FROM child_contacts
+         WHERE child_id = ANY(%s) AND user_id IS NOT NULL
+    """, (child_ids, child_ids)).fetchall()
+    return [r['user_id'] for r in rows]
+
 
 def counselor_school_ids(db, user_id, on_date=None):
     """The schools a counselor covers on a date, or None for "all of them".
@@ -1551,7 +1591,7 @@ def parent_get_children():
                         'kind': 'care', 'name': group['room_name'],
                     })
 
-    rows = db.execute("""
+    rows = db.execute(f"""
         SELECT c.id, c.name, s.name as school, c.service_type,
                COALESCE(
                  (SELECT json_agg(r.day_of_week ORDER BY CASE r.day_of_week
@@ -1561,9 +1601,9 @@ def parent_get_children():
                ) AS registered_days
         FROM children c
         JOIN schools s ON c.school_id = s.id
-        WHERE c.parent_id = %s AND c.active = 1
+        WHERE {_CHILD_BELONGS_TO_USER} AND c.active = 1
         ORDER BY c.name
-    """, (user_id,)).fetchall()
+    """, (user_id, user_id)).fetchall()
 
     result = []
     for row in rows:
@@ -1654,8 +1694,7 @@ def parent_mark_absence():
 
     db = get_db()
     # Verify child belongs to this parent
-    child = db.execute("SELECT id FROM children WHERE id = %s AND parent_id = %s", (child_id, user_id)).fetchone()
-    if not child:
+    if not parent_owns_child(db, user_id, child_id):
         db.close()
         return jsonify({'error': 'Child not found'}), 404
 
@@ -1700,8 +1739,7 @@ def parent_remove_absence():
         return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD.'}), 400
 
     db = get_db()
-    child = db.execute("SELECT id FROM children WHERE id = %s AND parent_id = %s", (child_id, user_id)).fetchone()
-    if not child:
+    if not parent_owns_child(db, user_id, child_id):
         db.close()
         return jsonify({'error': 'Child not found'}), 404
 
@@ -1748,8 +1786,7 @@ def parent_add_recurring_absence():
         end_date = None
 
     db = get_db()
-    child = db.execute("SELECT id FROM children WHERE id = %s AND parent_id = %s", (child_id, user_id)).fetchone()
-    if not child:
+    if not parent_owns_child(db, user_id, child_id):
         db.close()
         return jsonify({'error': 'Child not found'}), 404
 
@@ -1795,8 +1832,7 @@ def parent_delete_absence_exception():
         return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD.'}), 400
 
     db = get_db()
-    child = db.execute("SELECT id FROM children WHERE id = %s AND parent_id = %s", (child_id, user_id)).fetchone()
-    if not child:
+    if not parent_owns_child(db, user_id, child_id):
         db.close()
         return jsonify({'error': 'Child not found'}), 404
 
@@ -1817,11 +1853,11 @@ def parent_delete_recurring_absence(rule_id):
 
     user_id = get_jwt_identity()
     db = get_db()
-    rule = db.execute("""
+    rule = db.execute(f"""
         SELECT ra.id FROM recurring_absences ra
         JOIN children c ON c.id = ra.child_id
-        WHERE ra.id = %s AND c.parent_id = %s
-    """, (rule_id, user_id)).fetchone()
+        WHERE ra.id = %s AND {_CHILD_BELONGS_TO_USER}
+    """, (rule_id, user_id, user_id)).fetchone()
     if not rule:
         db.close()
         return jsonify({'error': 'Rule not found'}), 404
@@ -1894,8 +1930,9 @@ def parent_makeup_options():
 
     db = get_db()
     child = db.execute(
-        "SELECT id, name FROM children WHERE id=%s AND parent_id=%s AND active=1",
-        (child_id, user_id)
+        f"SELECT c.id, c.name FROM children c "
+        f"WHERE c.id=%s AND {_CHILD_BELONGS_TO_USER} AND c.active=1",
+        (child_id, user_id, user_id)
     ).fetchone()
     if not child:
         db.close()
@@ -2010,12 +2047,12 @@ def parent_create_makeup_class():
         return jsonify({'error': 'pickup_time required when needs_pickup is true'}), 400
 
     db = get_db()
-    child = db.execute("""
+    child = db.execute(f"""
         SELECT c.id, c.name, s.name AS school_name
           FROM children c
           JOIN schools s ON s.id = c.school_id
-         WHERE c.id=%s AND c.parent_id=%s AND c.active=1
-    """, (child_id, user_id)).fetchone()
+         WHERE c.id=%s AND {_CHILD_BELONGS_TO_USER} AND c.active=1
+    """, (child_id, user_id, user_id)).fetchone()
     if not child:
         db.close()
         return jsonify({'error': 'Child not found'}), 404
@@ -3104,7 +3141,15 @@ def admin_get_parents():
                     'is_new', c.is_new)
                   ORDER BY c.name)
                   FROM children c JOIN schools s ON c.school_id = s.id
-                  WHERE c.parent_id = u.id), '[]'
+                  -- Reached as Contact #1 (parent_id) or a linked Contact #2
+                  -- (child_contacts.user_id) — see _CHILD_BELONGS_TO_USER.
+                  -- The union is over plain ids, not json, since json (unlike
+                  -- jsonb) has no equality operator for UNION to dedupe with.
+                  WHERE c.id IN (
+                      SELECT id FROM children WHERE parent_id = u.id
+                      UNION
+                      SELECT child_id FROM child_contacts WHERE user_id = u.id
+                  )), '[]'
                ) AS children
         FROM users u
         WHERE u.role = 'parent'
@@ -3501,9 +3546,19 @@ def admin_get_child(child_id):
                    COALESCE((
                      SELECT json_agg(json_build_object(
                               'priority', cc.priority, 'name', cc.name,
-                              'phone', cc.phone, 'email', cc.email)
+                              'phone', cc.phone, 'email', cc.email,
+                              -- NULL for contact 1 (children.parent_id is
+                              -- their account, not this column) and for an
+                              -- unlinked contact 2. The Guardians screen uses
+                              -- this to offer "Invite as parent"; the linked
+                              -- account's own status (password set, last
+                              -- login) is fetched separately below, in Python,
+                              -- so its timestamps go through iso_utc() rather
+                              -- than Postgres' own json timestamp format.
+                              'user_id', cc.user_id)
                             ORDER BY cc.priority)
-                       FROM child_contacts cc WHERE cc.child_id = c.id
+                       FROM child_contacts cc
+                      WHERE cc.child_id = c.id
                    ), '[]') AS contacts,
                    COALESCE((
                      SELECT json_agg(json_build_object(
@@ -3554,12 +3609,30 @@ def admin_get_child(child_id):
         care_rules = _care_rules(db)
         room_names = {r['id']: r['name']
                       for r in db.execute("SELECT id, name FROM rooms").fetchall()}
+
+        # A linked Contact #2's own account status — kept separate from the
+        # contacts json_agg above so its timestamps go through iso_utc()
+        # instead of Postgres' own (Z-less) json timestamp format.
+        second_guardian_accounts = {
+            r['user_id']: r for r in db.execute("""
+                SELECT cc.user_id, u.password_set_at IS NOT NULL AS password_set,
+                       u.invited_at, u.last_login_at
+                  FROM child_contacts cc
+                  JOIN users u ON u.id = cc.user_id
+                 WHERE cc.child_id = %s AND cc.priority = 2
+            """, (child_id,)).fetchall()
+        }
     finally:
         db.close()
 
     child = dict(row)
     child['days'] = _as_list(child['days'])
     child['contacts'] = _as_list(child['contacts'])
+    for contact in child['contacts']:
+        account = second_guardian_accounts.get(contact.get('user_id'))
+        contact['password_set'] = bool(account['password_set']) if account else None
+        contact['invited_at'] = iso_utc(account['invited_at']) if account else None
+        contact['last_login_at'] = iso_utc(account['last_login_at']) if account else None
     child['compliance'] = _as_list(child['compliance'])
     child['active'] = bool(child['active'])
     child['on_bus'] = bool(child['on_bus'])
@@ -3606,6 +3679,166 @@ def admin_get_child(child_id):
             })
 
     return jsonify(child)
+
+
+# ─── SECOND GUARDIAN ────────────────────────────────────────────────────────
+# Giving Contact #2 (child_contacts, priority=2) a portal login of their own —
+# see the comment on child_contacts in server/database.py. Contact #1 is
+# untouched by all three of these: they are children.parent_id, not a row
+# here, and always has had a login since the child was created.
+
+@app.route('/api/admin/children/<int:child_id>/second-guardian', methods=['PUT'])
+@jwt_required()
+def admin_set_second_guardian(child_id):
+    """Add or edit Contact #2's name/phone/email for this child.
+
+    For a child added by hand, which has no child_contacts rows at all yet —
+    the roster importer already writes this row for an imported child (with
+    no user_id), so this is the same upsert _apply_contacts() does in
+    roster_staging.py, reachable from the admin screen for the other path.
+
+    Does not touch user_id: editing the email here is a correction to the
+    contact card, not a re-link of an already-invited account — same
+    separation admin_update_parent already draws for Contact #1's login.
+    """
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    data = request.json or {}
+    name = (data.get('name') or '').strip()
+    phone = (data.get('phone') or '').strip() or None
+    email = (data.get('email') or '').strip().lower() or None
+    if not name:
+        return jsonify({'error': 'A name is required'}), 400
+
+    db = get_db()
+    try:
+        child = db.execute(
+            "SELECT id FROM children WHERE id = %s", (child_id,)
+        ).fetchone()
+        if not child:
+            return jsonify({'error': 'Child not found'}), 404
+        row = db.execute("""
+            INSERT INTO child_contacts (child_id, priority, name, phone, email)
+            VALUES (%s, 2, %s, %s, %s)
+            ON CONFLICT (child_id, priority) DO UPDATE
+               SET name = EXCLUDED.name, phone = EXCLUDED.phone,
+                   email = EXCLUDED.email
+            RETURNING id, priority, name, phone, email, user_id
+        """, (child_id, name, phone, email)).fetchone()
+        db.commit()
+    finally:
+        db.close()
+    return jsonify(dict(row))
+
+
+@app.route('/api/admin/children/<int:child_id>/second-guardian/invite',
+           methods=['POST'])
+@jwt_required()
+def admin_invite_second_guardian(child_id):
+    """Give Contact #2 a portal login, and invite them.
+
+    Same lookup-or-create-by-email as the roster importer's _parent_for()
+    (roster_staging.py) — an email that already belongs to a users row (a
+    parent at another one of their kids, say) is linked to rather than
+    duplicated, and if that account already has a password set, nothing is
+    emailed: it is already usable, so this only links it.
+    """
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    db = get_db()
+    try:
+        contact = db.execute("""
+            SELECT cc.id, cc.name, cc.email, cc.user_id
+              FROM child_contacts cc
+              JOIN children c ON c.id = cc.child_id
+             WHERE cc.child_id = %s AND cc.priority = 2
+        """, (child_id,)).fetchone()
+        if not contact:
+            return jsonify({
+                'error': 'Add a name and email for the second guardian first.'
+            }), 400
+        if not contact['email']:
+            return jsonify({'error': 'That contact has no email on file.'}), 400
+        email = contact['email'].strip().lower()
+
+        existing_user = db.execute(
+            "SELECT id, name, password_set_at FROM users WHERE lower(email) = %s",
+            (email,)
+        ).fetchone()
+        if existing_user:
+            user_id = existing_user['id']
+            already_usable = existing_user['password_set_at'] is not None
+        else:
+            pw_hash = bcrypt.hashpw(secrets.token_urlsafe(32).encode(), bcrypt.gensalt()).decode()
+            user_id = db.execute(
+                "INSERT INTO users (email, password_hash, role, name) "
+                "VALUES (%s, %s, 'parent', %s) RETURNING id",
+                (email, pw_hash, contact['name'] or email),
+            ).fetchone()['id']
+            already_usable = False
+
+        db.execute(
+            "UPDATE child_contacts SET user_id = %s WHERE id = %s",
+            (user_id, contact['id'])
+        )
+
+        if already_usable:
+            db.commit()
+            return jsonify({
+                'message': 'Linked to their existing account.',
+                'user_id': user_id,
+                'invited': False,
+            })
+
+        db.execute(
+            "UPDATE password_reset_tokens SET used = 1 WHERE user_id = %s AND used = 0",
+            (user_id,)
+        )
+        setup_url = _issue_setup_token(db, user_id)
+        db.commit()
+        identity = email_identity(db)
+    finally:
+        db.close()
+
+    name = existing_user['name'] if existing_user else contact['name']
+    ok = send_invitation(email, name or email, setup_url, identity)
+    if not ok:
+        return jsonify({
+            'error': 'Linked, but the invitation email could not be sent. '
+                     'Use "Resend invite" once mail is working, or hand over '
+                     'a setup link.',
+            'user_id': user_id,
+            'invited': False,
+        }), 502
+    _mark_user_invited(user_id)
+    return jsonify({'message': 'Invited', 'user_id': user_id, 'invited': True})
+
+
+@app.route('/api/admin/children/<int:child_id>/second-guardian/access',
+           methods=['DELETE'])
+@jwt_required()
+def admin_remove_second_guardian_access(child_id):
+    """Take Contact #2's portal access away without deleting them as a
+    contact, or the account itself (they may be Contact #1 or #2 for a
+    sibling — see child_contacts.user_id ON DELETE SET NULL for why deleting
+    the account outright is always safe too, just a different action:
+    DELETE /api/admin/parents/<id>).
+    """
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    db = get_db()
+    try:
+        row = db.execute("""
+            UPDATE child_contacts SET user_id = NULL
+             WHERE child_id = %s AND priority = 2
+            RETURNING id
+        """, (child_id,)).fetchone()
+        db.commit()
+    finally:
+        db.close()
+    if not row:
+        return jsonify({'error': 'No second guardian on file for this child'}), 404
+    return jsonify({'message': 'Access removed'})
 
 
 @app.route('/api/admin/children', methods=['POST'])
@@ -4348,6 +4581,116 @@ def admin_send_all_invites():
 @app.route('/api/admin/parents/send-all-invites/status', methods=['GET'])
 @jwt_required()
 def admin_send_all_invites_status():
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    return jsonify(bulk_invites.read(current_org_id()))
+
+
+@app.route('/api/admin/children/second-guardians/send-all-invites', methods=['POST'])
+@jwt_required()
+def admin_invite_all_second_guardians():
+    """Invite every Contact #2 who has an email and no active account yet.
+
+    The bulk twin of POST .../second-guardian/invite (per child) — same
+    lookup-or-create-by-email, same _run_all_invites_job worker and the same
+    bulk_invites job slot as "Invite every parent", so the two refuse to run
+    at once rather than racing each other against the same Resend rate limit.
+
+    Deduped by email in Python, not SQL: two children can share a Contact #2
+    (siblings), and that has to become one account invited once, with both
+    child_contacts rows linked to it — not two accounts, or two invitations
+    to the same person.
+    """
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    if not PARENT_INVITES_ENABLED:
+        return jsonify({
+            'error': 'Parent invitations are disabled. Set PARENT_INVITES_ENABLED=1 to enable.'
+        }), 403
+
+    org_id = current_org_id()
+    db = get_db()
+    try:
+        # Not yet an active account — unlinked, or linked but still pending.
+        # Mirrors admin_send_all_invites' own "no invite or pending" rule.
+        rows = db.execute("""
+            SELECT cc.id AS contact_id, cc.name, lower(cc.email) AS email,
+                   cc.user_id, u.password_set_at
+              FROM child_contacts cc
+              LEFT JOIN users u ON u.id = cc.user_id
+             WHERE cc.priority = 2 AND cc.email IS NOT NULL AND cc.email != ''
+               AND (cc.user_id IS NULL OR u.password_set_at IS NULL)
+             ORDER BY cc.email
+        """).fetchall()
+
+        setups = []
+        seen: dict[str, int] = {}  # email -> user_id, one per unique person
+        for row in rows:
+            email = (row['email'] or '').strip()
+            if not email or '@' not in email:
+                continue
+            if email in seen:
+                user_id = seen[email]
+                if row['user_id'] != user_id:
+                    db.execute(
+                        "UPDATE child_contacts SET user_id = %s WHERE id = %s",
+                        (user_id, row['contact_id'])
+                    )
+                continue
+
+            if row['user_id']:
+                user_id = row['user_id']
+            else:
+                existing = db.execute(
+                    "SELECT id FROM users WHERE lower(email) = %s", (email,)
+                ).fetchone()
+                if existing:
+                    user_id = existing['id']
+                else:
+                    pw_hash = bcrypt.hashpw(
+                        secrets.token_urlsafe(32).encode(), bcrypt.gensalt()
+                    ).decode()
+                    user_id = db.execute(
+                        "INSERT INTO users (email, password_hash, role, name) "
+                        "VALUES (%s, %s, 'parent', %s) RETURNING id",
+                        (email, pw_hash, row['name'] or email),
+                    ).fetchone()['id']
+                db.execute(
+                    "UPDATE child_contacts SET user_id = %s WHERE id = %s",
+                    (user_id, row['contact_id'])
+                )
+            seen[email] = user_id
+
+            db.execute(
+                "UPDATE password_reset_tokens SET used=1 WHERE user_id=%s AND used=0",
+                (user_id,)
+            )
+            setup_url = _issue_setup_token(db, user_id)
+            setups.append((user_id, email, row['name'], setup_url))
+        db.commit()
+    finally:
+        db.close()
+
+    if not bulk_invites.try_start(org_id, len(setups)):
+        return jsonify({
+            'error': 'A bulk invite job is already running. Please wait for it to finish.',
+            'state': bulk_invites.read(org_id),
+        }), 409
+
+    threading.Thread(
+        target=_run_all_invites_job, args=(setups, org_id), daemon=True
+    ).start()
+
+    return jsonify({
+        'started': True,
+        'total': len(setups),
+        'message': 'Invitations are being sent in the background.',
+    })
+
+
+@app.route('/api/admin/children/second-guardians/send-all-invites/status', methods=['GET'])
+@jwt_required()
+def admin_invite_all_second_guardians_status():
     if not require_admin():
         return jsonify({'error': 'Unauthorized'}), 403
     return jsonify(bulk_invites.read(current_org_id()))
@@ -7790,8 +8133,8 @@ def counselor_notify_parent():
 
     db = get_db()
     child = db.execute("""
-        SELECT c.name as child_name, c.parent_id, u.name as parent_name, u.email as parent_email
-        FROM children c JOIN users u ON c.parent_id = u.id
+        SELECT c.name as child_name, c.parent_id
+        FROM children c
         WHERE c.id = %s
     """, (child_id,)).fetchone()
 
@@ -7818,41 +8161,50 @@ def counselor_notify_parent():
         ).fetchone()
     db.commit()
 
-    # Fan the event out to any parent portals that are open RIGHT NOW so the
-    # "Is your child coming?" card appears without needing a refresh. The stream
-    # filters by parent_id server-side.
-    pickup_events.publish('parent-notification', {
-        'id': notif_row['id'],
-        'parent_id': child['parent_id'],
-        'child_id': child_id,
-        'child_name': child['child_name'],
-        'notification_date': str(notification_date),
-        'message': message,
-    }, current_org_id())
+    # Both linked accounts hear about this, not just whichever one the
+    # parent_notifications row itself is stamped with — parent_get_notifications
+    # and parent_respond_notification already read/answer it by child, not by
+    # that stamp, so either parent sees the card and either may answer it.
+    owners = db.execute(
+        "SELECT id, name, email FROM users WHERE id = ANY(%s)",
+        (child_owner_ids(db, [child_id]),)
+    ).fetchall()
 
-    # Send email if configured. Resolved here, on the request thread, because
-    # send_email_async below has no way to work out the organization on its own.
     identity = email_identity(db)
     date_display = datetime.strptime(notification_date, '%Y-%m-%d').strftime('%A, %B %d')
-    html = _email_shell(
-        identity, f"{identity.org_name} – Attendance Confirmation", f"""
-        <p>Hello {_escape(child['parent_name'])},</p>
-        <p>Your child <strong>{_escape(child['child_name'])}</strong> has not been confirmed for {_escape(identity.org_name)} on <strong>{date_display}</strong>.</p>
-        <p>Please log in to your parent portal to confirm if they are attending or mark an absence.</p>
-        {_cta(identity, f"{EMAIL_CONFIG['base_url']}/app/home", 'Open Parent Portal')}
-    """)
-    # Off the request thread — see send_email_async / send_push_to_user_async
-    # comments. The 'parent-notification' SSE event already fired above, so
-    # parents with the portal open see the card without waiting on SMTP/FCM.
-    send_email_async(
-        child['parent_email'],
-        f"{identity.org_name} – Please confirm {child['child_name']}'s attendance",
-        html,
-        identity,
-    )
-    notify_parent(child['parent_id'], 'attendance_check',
-                  f"📋 {identity.org_name} – Attendance Check",
-                  f"Is {child['child_name']} coming today? Tap to confirm.", '/app/home')
+    for owner in owners:
+        # Fan the event out to any parent portals that are open RIGHT NOW so
+        # the "Is your child coming?" card appears without needing a refresh.
+        # The stream filters by parent_id server-side.
+        pickup_events.publish('parent-notification', {
+            'id': notif_row['id'],
+            'parent_id': owner['id'],
+            'child_id': child_id,
+            'child_name': child['child_name'],
+            'notification_date': str(notification_date),
+            'message': message,
+        }, current_org_id())
+
+        if owner['email']:
+            html = _email_shell(
+                identity, f"{identity.org_name} – Attendance Confirmation", f"""
+                <p>Hello {_escape(owner['name'])},</p>
+                <p>Your child <strong>{_escape(child['child_name'])}</strong> has not been confirmed for {_escape(identity.org_name)} on <strong>{date_display}</strong>.</p>
+                <p>Please log in to your parent portal to confirm if they are attending or mark an absence.</p>
+                {_cta(identity, f"{EMAIL_CONFIG['base_url']}/app/home", 'Open Parent Portal')}
+            """)
+            # Off the request thread — see send_email_async / send_push_to_user_async
+            # comments. The 'parent-notification' SSE event already fired above, so
+            # parents with the portal open see the card without waiting on SMTP/FCM.
+            send_email_async(
+                owner['email'],
+                f"{identity.org_name} – Please confirm {child['child_name']}'s attendance",
+                html,
+                identity,
+            )
+        notify_parent(owner['id'], 'attendance_check',
+                      f"📋 {identity.org_name} – Attendance Check",
+                      f"Is {child['child_name']} coming today? Tap to confirm.", '/app/home')
     db.close()
     return jsonify({'message': 'Notification sent'})
 
@@ -7893,13 +8245,16 @@ def parent_get_notifications():
 
     user_id = get_jwt_identity()
     db = get_db()
-    notifs = db.execute("""
+    # Any child this account reaches — as Contact #1 or a linked Contact #2 —
+    # not just the one parent_id the row was created under. Either parent can
+    # answer; see parent_respond_notification below for the same broadening.
+    notifs = db.execute(f"""
         SELECT n.id, n.child_id, c.name as child_name, n.notification_date, n.message, n.response, n.responded_at
         FROM parent_notifications n
         JOIN children c ON n.child_id = c.id
-        WHERE n.parent_id = %s AND n.response IS NULL
+        WHERE {_CHILD_BELONGS_TO_USER} AND n.response IS NULL
         ORDER BY n.created_at DESC
-    """, (user_id,)).fetchall()
+    """, (user_id, user_id)).fetchall()
     db.close()
     return jsonify([dict(n) for n in notifs])
 
@@ -7917,9 +8272,13 @@ def parent_respond_notification(notif_id):
         return jsonify({'error': 'Invalid response'}), 400
 
     db = get_db()
-    notif = db.execute(
-        "SELECT * FROM parent_notifications WHERE id = %s AND parent_id = %s", (notif_id, user_id)
-    ).fetchone()
+    # Whoever answers first settles it for the family — same rule as marking
+    # an absence, which either linked parent can already do.
+    notif = db.execute(f"""
+        SELECT n.* FROM parent_notifications n
+          JOIN children c ON c.id = n.child_id
+         WHERE n.id = %s AND {_CHILD_BELONGS_TO_USER}
+    """, (notif_id, user_id, user_id)).fetchone()
     if not notif:
         db.close()
         return jsonify({'error': 'Notification not found'}), 404
@@ -8260,24 +8619,30 @@ def push_unsubscribe():
 # ─── ADMIN → PARENT MESSAGES (INBOX) ────────────────────────────────────────
 
 def _resolve_message_recipients(db, audience_type, school_ids):
-    """Return DISTINCT parent_ids that should receive a message given the
+    """Return DISTINCT user ids that should receive a message given the
     audience filter. Always restricted to parents who have at least one
-    active child in the program."""
+    active child in the program — as Contact #1 (parent_id) or a linked
+    Contact #2 (child_contacts.user_id), so a broadcast reaches both."""
     if audience_type == 'all':
         rows = db.execute("""
-            SELECT DISTINCT c.parent_id
-            FROM children c
-            WHERE c.active = 1
+            SELECT DISTINCT parent_id AS user_id FROM children WHERE active = 1
+            UNION
+            SELECT DISTINCT cc.user_id
+              FROM child_contacts cc JOIN children c ON c.id = cc.child_id
+             WHERE c.active = 1 AND cc.user_id IS NOT NULL
         """).fetchall()
     else:
         if not school_ids:
             return []
         rows = db.execute("""
-            SELECT DISTINCT c.parent_id
-            FROM children c
-            WHERE c.active = 1 AND c.school_id = ANY(%s)
-        """, (list(school_ids),)).fetchall()
-    return [r['parent_id'] for r in rows]
+            SELECT DISTINCT parent_id AS user_id FROM children
+             WHERE active = 1 AND school_id = ANY(%s)
+            UNION
+            SELECT DISTINCT cc.user_id
+              FROM child_contacts cc JOIN children c ON c.id = cc.child_id
+             WHERE c.active = 1 AND c.school_id = ANY(%s) AND cc.user_id IS NOT NULL
+        """, (list(school_ids), list(school_ids))).fetchall()
+    return [r['user_id'] for r in rows]
 
 
 @app.route('/api/admin/messages/preview-count', methods=['POST'])
@@ -8567,21 +8932,28 @@ def _run_attendance_check(organization_id):
     # Published and pushed after the commit, never inside it: a parent whose
     # portal is open should only be shown a card that actually exists.
     identity = email_identity()
-    for notif_id, child, message in rows:
-        pickup_events.publish('parent-notification', {
-            'id': notif_id,
-            'parent_id': child['parent_id'],
-            'child_id': child['child_id'],
-            'child_name': child['child_name'],
-            'notification_date': str(check_date),
-            'message': message,
-        }, organization_id)
-        notify_parent(
-            child['parent_id'], 'attendance_check',
-            f"📋 {identity.org_name} – Attendance Check",
-            f"Is {child['child_name']} coming today? Tap to confirm.",
-            '/app/home',
-        )
+    check_db = get_db()
+    try:
+        for notif_id, child, message in rows:
+            # Both linked accounts, not just whichever one parent_id happens
+            # to name — see counselor_notify_parent for the same broadening.
+            for owner_id in child_owner_ids(check_db, [child['child_id']]):
+                pickup_events.publish('parent-notification', {
+                    'id': notif_id,
+                    'parent_id': owner_id,
+                    'child_id': child['child_id'],
+                    'child_name': child['child_name'],
+                    'notification_date': str(check_date),
+                    'message': message,
+                }, organization_id)
+                notify_parent(
+                    owner_id, 'attendance_check',
+                    f"📋 {identity.org_name} – Attendance Check",
+                    f"Is {child['child_name']} coming today? Tap to confirm.",
+                    '/app/home',
+                )
+    finally:
+        check_db.close()
     return len(rows)
 
 
@@ -9540,10 +9912,9 @@ def counselor_upload_photo():
                 )
             # Read the families to notify before committing, so the whole
             # handler is one transaction and the connection goes back to the
-            # pool clean rather than mid-snapshot.
-            parents = db.execute("""
-                SELECT DISTINCT parent_id FROM children WHERE id = ANY(%s)
-            """, (allowed_ids,)).fetchall()
+            # pool clean rather than mid-snapshot. Both linked accounts for
+            # each tagged child, not just Contact #1.
+            owner_ids = child_owner_ids(db, allowed_ids)
             db.commit()
         except Exception:
             # The bytes are already in the bucket and the rows just rolled
@@ -9563,9 +9934,9 @@ def counselor_upload_photo():
     finally:
         db.close()
 
-    for p in parents:
+    for owner_id in owner_ids:
         notify_parent(
-            p['parent_id'], 'new_photos', '📸 New photos',
+            owner_id, 'new_photos', '📸 New photos',
             'A new photo of your child was shared today.', '/app/photos',
         )
     return jsonify(_photo_payload(photo)), 201
@@ -9680,8 +10051,10 @@ def counselor_delete_photo(photo_id):
 def parent_list_photos():
     """Photos of this parent's own children, newest first.
 
-    The join to children on parent_id is the access control. RLS keeps other
-    JCCs out; nothing but this clause keeps the family next door out.
+    The join to children is the access control. RLS keeps other JCCs out;
+    nothing but this clause keeps the family next door out. "This parent's
+    own children" reaches a child as Contact #1 (parent_id) or a linked
+    Contact #2 (child_contacts.user_id) — see _CHILD_BELONGS_TO_USER.
     """
     claims = get_jwt()
     if claims.get('role') != 'parent':
@@ -9689,25 +10062,25 @@ def parent_list_photos():
     user_id = get_jwt_identity()
     db = get_db()
     try:
-        rows = db.execute("""
+        rows = db.execute(f"""
             SELECT DISTINCT p.id, p.storage_path, p.photo_date, p.caption,
                             p.created_at
               FROM photos p
               JOIN photo_tags t ON t.photo_id = p.id
               JOIN children c ON c.id = t.child_id
-             WHERE c.parent_id = %s
+             WHERE {_CHILD_BELONGS_TO_USER}
              ORDER BY p.photo_date DESC, p.created_at DESC
              LIMIT %s
-        """, (user_id, PHOTO_PAGE_LIMIT)).fetchall()
-        # Which of *their* children are in each photo. Deliberately filtered by
-        # parent_id again: without it this would name every child in the frame,
-        # including other families'.
-        mine = db.execute("""
+        """, (user_id, user_id, PHOTO_PAGE_LIMIT)).fetchall()
+        # Which of *their* children are in each photo. Deliberately filtered
+        # the same way again: without it this would name every child in the
+        # frame, including other families'.
+        mine = db.execute(f"""
             SELECT t.photo_id, c.name
               FROM photo_tags t
               JOIN children c ON c.id = t.child_id
-             WHERE c.parent_id = %s AND t.photo_id = ANY(%s)
-        """, (user_id, [r['id'] for r in rows] or [0])).fetchall()
+             WHERE {_CHILD_BELONGS_TO_USER} AND t.photo_id = ANY(%s)
+        """, (user_id, user_id, [r['id'] for r in rows] or [0])).fetchall()
     finally:
         db.close()
     named = {}
@@ -10374,13 +10747,13 @@ def parent_list_authorized_pickups():
     user_id = get_jwt_identity()
     db = get_db()
     try:
-        rows = db.execute("""
+        rows = db.execute(f"""
             SELECT p.id, p.child_id, p.name, p.relationship, c.name AS child_name
               FROM authorized_pickup_people p
               JOIN children c ON c.id = p.child_id
-             WHERE c.parent_id = %s AND c.active = 1
+             WHERE {_CHILD_BELONGS_TO_USER} AND c.active = 1
              ORDER BY c.name, p.name
-        """, (user_id,)).fetchall()
+        """, (user_id, user_id)).fetchall()
     finally:
         db.close()
     return jsonify([dict(r) for r in rows])
@@ -10404,11 +10777,13 @@ def parent_add_authorized_pickup():
 
     db = get_db()
     try:
-        # The child has to be this parent's. Without this check a parent could
-        # authorize themselves onto another family's child.
+        # The child has to belong to this parent — as Contact #1 or a linked
+        # Contact #2. Without this check a parent could authorize themselves
+        # onto another family's child.
         child = db.execute(
-            "SELECT id FROM children WHERE id = %s AND parent_id = %s AND active = 1",
-            (child_id, user_id),
+            f"SELECT c.id FROM children c "
+            f"WHERE c.id = %s AND {_CHILD_BELONGS_TO_USER} AND c.active = 1",
+            (child_id, user_id, user_id),
         ).fetchone()
         if not child:
             return jsonify({'error': 'Child not found'}), 404
@@ -10418,15 +10793,16 @@ def parent_add_authorized_pickup():
         # them retype her name once per child produced busywork and two lists
         # that drifted apart. Somebody who may genuinely collect only one child
         # is removed from the other with the × that is already there, which is
-        # one tap against the many this saves.
-        rows = db.execute("""
+        # one tap against the many this saves. "Their children" now includes
+        # any child this account reaches as Contact #1 or Contact #2.
+        rows = db.execute(f"""
             INSERT INTO authorized_pickup_people (child_id, name, relationship, created_by)
             SELECT c.id, %s, %s, %s
               FROM children c
-             WHERE c.parent_id = %s AND c.active = 1
+             WHERE {_CHILD_BELONGS_TO_USER} AND c.active = 1
             ON CONFLICT (child_id, name) DO UPDATE SET relationship = excluded.relationship
             RETURNING id, child_id, name, relationship
-        """, (name, relationship, user_id, user_id)).fetchall()
+        """, (name, relationship, user_id, user_id, user_id)).fetchall()
         db.commit()
     except Exception as e:
         print(f"[ERROR] parent_add_authorized_pickup: {e}")
@@ -10463,12 +10839,12 @@ def parent_edit_authorized_pickup(person_id):
         # Same ownership join as the delete below: the row has to hang off a
         # child of this parent's, or a person_id from another family would be
         # editable by anyone who guessed the number.
-        current = db.execute("""
+        current = db.execute(f"""
             SELECT p.id, p.name
               FROM authorized_pickup_people p
               JOIN children c ON c.id = p.child_id
-             WHERE p.id = %s AND c.parent_id = %s
-        """, (person_id, user_id)).fetchone()
+             WHERE p.id = %s AND {_CHILD_BELONGS_TO_USER}
+        """, (person_id, user_id, user_id)).fetchone()
         if not current:
             return jsonify({'error': 'Not found'}), 404
 
@@ -10477,13 +10853,13 @@ def parent_edit_authorized_pickup(person_id):
         # misspelled name fixes it everywhere rather than leaving the other
         # child with the typo — and a counselor reading two spellings of the
         # same grandmother has no way to tell they are one person.
-        updated = db.execute("""
+        updated = db.execute(f"""
             UPDATE authorized_pickup_people p
                SET name = %s, relationship = %s
               FROM children c
-             WHERE c.id = p.child_id AND c.parent_id = %s AND p.name = %s
+             WHERE c.id = p.child_id AND {_CHILD_BELONGS_TO_USER} AND p.name = %s
             RETURNING p.id, p.child_id, p.name, p.relationship
-        """, (name, relationship, user_id, current['name'])).fetchall()
+        """, (name, relationship, user_id, user_id, current['name'])).fetchall()
         db.commit()
     except psycopg2.errors.UniqueViolation:
         # UNIQUE (child_id, name) — they renamed onto someone already listed.
@@ -10513,12 +10889,12 @@ def parent_remove_authorized_pickup(person_id):
         # Deleting the person does not touch pickup_releases: those rows carry
         # their own copy of the name precisely so removing someone from the
         # list never rewrites the history of who collected a child.
-        deleted = db.execute("""
+        deleted = db.execute(f"""
             DELETE FROM authorized_pickup_people p
              USING children c
-             WHERE p.id = %s AND c.id = p.child_id AND c.parent_id = %s
+             WHERE p.id = %s AND c.id = p.child_id AND {_CHILD_BELONGS_TO_USER}
             RETURNING p.id
-        """, (person_id, user_id)).fetchone()
+        """, (person_id, user_id, user_id)).fetchone()
         db.commit()
     finally:
         db.close()
@@ -10915,13 +11291,20 @@ def counselor_release_child():
     _publish_headcount(release_date)
 
     # The parent asked for this record; tell them without making them look.
-    notify_parent(
-        child['parent_id'],
-        'pickup_released',
-        '👋 Picked up',
-        f"{child['name']} was picked up by {person['name']}.",
-        '/app/home',
-    )
+    # Both linked accounts, not just whichever one is children.parent_id.
+    notify_db = get_db()
+    try:
+        owner_ids = child_owner_ids(notify_db, [child_id])
+    finally:
+        notify_db.close()
+    for owner_id in owner_ids:
+        notify_parent(
+            owner_id,
+            'pickup_released',
+            '👋 Picked up',
+            f"{child['name']} was picked up by {person['name']}.",
+            '/app/home',
+        )
     return jsonify(payload), 201
 
 
@@ -11190,8 +11573,9 @@ def parent_pickup_notify():
 
     # Verify the child belongs to this parent
     child = db.execute(
-        "SELECT c.id, c.name FROM children c WHERE c.id = %s AND c.parent_id = %s AND c.active = 1",
-        (child_id, user_id)
+        f"SELECT c.id, c.name FROM children c "
+        f"WHERE c.id = %s AND {_CHILD_BELONGS_TO_USER} AND c.active = 1",
+        (child_id, user_id, user_id)
     ).fetchone()
     if not child:
         db.close()
@@ -11336,25 +11720,33 @@ def claim_pickup(pickup_id):
     pickup_events.publish('claimed', payload, current_org_id())
 
     # Notify the parent that a specific counselor is now bringing their child.
-    # Separate event type so /api/parent/stream can route it to that one parent
-    # instead of having every parent listen to the staff-facing 'claimed' feed.
-    pickup_events.publish('pickup-claimed', {
-        'pickup_id': payload['id'],
-        'child_id': payload['child_id'],
-        'child_name': payload['child_name'],
-        'parent_id': payload['parent_id'],
-        'counselor_name': payload['claimed_by_name'],
-        'claimed_at': payload['claimed_at'],
-    }, current_org_id())
-    notify_parent(
-        payload['parent_id'],
-        'pickup_claimed',
-        title=f"{payload['claimed_by_name']} is on the way",
-        body=f"{payload['claimed_by_name']} is bringing {payload['child_name']} to you now",
-        url='/app/home',
-        tag=f"pickup-claimed-{payload['id']}",
-        pickup_id=payload['id'],
-    )
+    # Separate event type so /api/parent/stream can route it to that parent
+    # instead of having every parent listen to the staff-facing 'claimed' feed
+    # — "that parent" now being whichever of the two linked accounts, not
+    # only whoever tapped "I'm here" (payload['parent_id']).
+    notify_db = get_db()
+    try:
+        owner_ids = child_owner_ids(notify_db, [payload['child_id']])
+    finally:
+        notify_db.close()
+    for owner_id in owner_ids:
+        pickup_events.publish('pickup-claimed', {
+            'pickup_id': payload['id'],
+            'child_id': payload['child_id'],
+            'child_name': payload['child_name'],
+            'parent_id': owner_id,
+            'counselor_name': payload['claimed_by_name'],
+            'claimed_at': payload['claimed_at'],
+        }, current_org_id())
+        notify_parent(
+            owner_id,
+            'pickup_claimed',
+            title=f"{payload['claimed_by_name']} is on the way",
+            body=f"{payload['claimed_by_name']} is bringing {payload['child_name']} to you now",
+            url='/app/home',
+            tag=f"pickup-claimed-{payload['id']}",
+            pickup_id=payload['id'],
+        )
     return jsonify(payload)
 
 
@@ -11395,13 +11787,20 @@ def unclaim_pickup(pickup_id):
 
     # Tell the parent's portal to revert the "is bringing your child" UI back
     # to the generic "Staff have been notified" state. No push — a silent undo
-    # would be confusing if it landed on the lock screen.
-    pickup_events.publish('pickup-unclaimed', {
-        'pickup_id': payload['id'],
-        'child_id': payload['child_id'],
-        'child_name': payload['child_name'],
-        'parent_id': payload['parent_id'],
-    }, current_org_id())
+    # would be confusing if it landed on the lock screen. Both linked
+    # accounts, same as the claim event above.
+    notify_db = get_db()
+    try:
+        owner_ids = child_owner_ids(notify_db, [payload['child_id']])
+    finally:
+        notify_db.close()
+    for owner_id in owner_ids:
+        pickup_events.publish('pickup-unclaimed', {
+            'pickup_id': payload['id'],
+            'child_id': payload['child_id'],
+            'child_name': payload['child_name'],
+            'parent_id': owner_id,
+        }, current_org_id())
     return jsonify(payload)
 
 

@@ -16,6 +16,7 @@ import {
   EditPersonForm,
   InviteStatus,
   ResendInvite,
+  SecondGuardianBulkInviteCard,
   SetupLink,
 } from '@/components/people'
 
@@ -182,6 +183,7 @@ export function AdminParents() {
       </h1>
 
       <BulkInviteCard />
+      <SecondGuardianBulkInviteCard />
 
       {editing && (
         <EditPersonForm

@@ -1055,6 +1055,121 @@ export function BulkInviteCard() {
   )
 }
 
+/**
+ * Invite every Contact #2 on file (child_contacts, priority 2) who has an
+ * email and no active account yet — the bulk twin of the "Invite as parent"
+ * button on a child's own profile, for a director who does not want to open
+ * every child one at a time.
+ *
+ * Shares its progress polling shape with BulkInviteCard above (same
+ * bulk_invites job state on the server), but is a genuinely separate job —
+ * starting one refuses to start while the other is running, same guard,
+ * different list of who gets mailed.
+ */
+export function SecondGuardianBulkInviteCard() {
+  const [note, setNote] = useState('')
+
+  const { data: state } = useQuery({
+    queryKey: ['admin', 'bulk-invites', 'second-guardians'],
+    queryFn: () =>
+      api<BulkState>(
+        '/api/admin/children/second-guardians/send-all-invites/status',
+      ),
+    refetchInterval: (q) =>
+      q.state.data?.status === 'running' ? 2000 : false,
+  })
+
+  const start = useMutation({
+    mutationFn: () =>
+      api('/api/admin/children/second-guardians/send-all-invites', {
+        method: 'POST',
+        body: {},
+      }),
+    onSuccess: () => setNote(''),
+    onError: (e) =>
+      setNote(e instanceof ApiError ? e.message : 'Could not start the send.'),
+  })
+
+  const running = state?.status === 'running'
+  const done = state?.status === 'done'
+
+  return (
+    <Card className="mb-4 p-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="font-extrabold text-ink-800">
+            Invite every second guardian
+          </p>
+          <p className="text-[0.85rem] font-medium text-ink-500">
+            For every child with a second contact on file and an email
+            address, links or creates their account and sends a setup link.
+            Already-active accounts are skipped.
+          </p>
+        </div>
+        <Button loading={running || start.isPending} onClick={() => start.mutate()}>
+          <Send className="size-4" strokeWidth={2.4} />
+          {running ? 'Sending…' : 'Send invitations'}
+        </Button>
+      </div>
+
+      {(running || done) && state && (
+        <div className="mt-4 border-t border-canvas-200 pt-3">
+          <div className="mb-2 flex items-center gap-3 text-[0.88rem] font-bold">
+            <span className="text-leaf-600">{state.sent} sent</span>
+            {state.failed > 0 && (
+              <span className="text-berry-600">{state.failed} failed</span>
+            )}
+            <span className="text-ink-400">of {state.total}</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-canvas-200">
+            <div
+              className="h-full rounded-full bg-sky-500 transition-all"
+              style={{
+                width: state.total
+                  ? `${Math.round(((state.sent + state.failed) / state.total) * 100)}%`
+                  : '0%',
+              }}
+            />
+          </div>
+
+          {state.error && (
+            <p role="alert" className="mt-2 text-sm font-medium text-berry-600">
+              {state.error}
+            </p>
+          )}
+
+          {state.failed_emails.length > 0 && (
+            <details className="mt-3">
+              <summary className="cursor-pointer text-[0.85rem] font-bold text-ink-600">
+                {state.failed_emails.length} address
+                {state.failed_emails.length === 1 ? '' : 'es'} need a manual
+                resend
+              </summary>
+              <ul className="mt-2 flex flex-col gap-1">
+                {state.failed_emails.map((f) => (
+                  <li
+                    key={f.email}
+                    className="text-[0.83rem] font-medium text-ink-500"
+                  >
+                    <span className="font-bold text-ink-700">{f.email}</span> —{' '}
+                    {f.reason}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+
+      {note && (
+        <p role="alert" className="mt-3 text-sm font-medium text-berry-600">
+          {note}
+        </p>
+      )}
+    </Card>
+  )
+}
+
 /* ── Shared header action ────────────────────────────────────────────── */
 
 export function AddButton({
