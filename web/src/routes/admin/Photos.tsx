@@ -109,6 +109,7 @@ function Uploader({ date, onDone }: { date: string; onDone: () => void }) {
       form.append('file', await downscale(file))
       form.append('date', date)
       if (caption.trim()) form.append('caption', caption.trim())
+      if (broadcast) form.append('broadcast', '1')
       tagged.forEach((id) => form.append('child_ids', String(id)))
       return api('/api/counselor/photos', { method: 'POST', body: form })
     },

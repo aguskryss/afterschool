@@ -9902,6 +9902,11 @@ def counselor_upload_photo():
     if not child_ids:
         return jsonify({'error': 'Tag at least one child'}), 400
 
+    # Set by the admin "send to every family" toggle, which tags every active
+    # child rather than the ones actually pictured — so the notification text
+    # can't promise "of your child" the way a real per-child tag can.
+    broadcast = request.form.get('broadcast') == '1'
+
     caption = (request.form.get('caption') or '').strip() or None
     photo_date = request.form.get('date') or today_for_org()
     try:
@@ -9986,10 +9991,13 @@ def counselor_upload_photo():
     finally:
         db.close()
 
+    body = (
+        'A new photo was shared today.' if broadcast
+        else 'A new photo of your child was shared today.'
+    )
     for owner_id in owner_ids:
         notify_parent(
-            owner_id, 'new_photos', '📸 New photos',
-            'A new photo of your child was shared today.', '/app/photos',
+            owner_id, 'new_photos', '📸 New photos', body, '/app/photos',
         )
     return jsonify(_photo_payload(photo)), 201
 
