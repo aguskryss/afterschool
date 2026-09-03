@@ -820,7 +820,9 @@ EMAIL_CONFIG = {
         'EMAIL_FROM',
         os.environ.get('EMAIL_USER', 'noreply@kikarlabs.com'),
     ),
-    'base_url': os.environ.get('BASE_URL', 'http://localhost:5000'),
+    # rstrip: a trailing slash here doubles up with the leading '/' every
+    # caller appends (e.g. BASE_URL="https://x.com/" -> "https://x.com//app/home").
+    'base_url': os.environ.get('BASE_URL', 'http://localhost:5000').rstrip('/'),
 }
 
 # The domain every organization sends from lives in tenancy.EMAIL_SENDER_DOMAIN,
@@ -10187,7 +10189,7 @@ def forgot_password():
     # A superadmin has no organization and correctly falls back to Kikar's.
     identity = email_identity(db)
     db.close()
-    base_url = os.environ.get('BASE_URL', 'http://localhost:5001')
+    base_url = os.environ.get('BASE_URL', 'http://localhost:5001').rstrip('/')
     reset_url = f"{base_url}/reset-password?token={token}"
     html = _email_shell(identity, f"{identity.org_name} Password Reset", f"""
             <p>Hello {_escape(user['name'])},</p>

@@ -448,7 +448,7 @@ def create_organization_admin(org_id):
     finally:
         db.close()
 
-    base_url = os.environ.get('BASE_URL', 'http://localhost:5001')
+    base_url = os.environ.get('BASE_URL', 'http://localhost:5001').rstrip('/')
     return jsonify({
         'id': user_id,
         'email': email,
