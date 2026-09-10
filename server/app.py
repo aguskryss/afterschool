@@ -2218,6 +2218,16 @@ def counselor_get_roster():
     absent_ids = absent_child_ids_for_date(db, date_str)
     absent_id_list = list(absent_ids) if absent_ids else None
 
+    # "Where to?" (§3.4): a child's first stop after the bus, so a counselor
+    # standing at the school gate can answer it on the spot instead of sending
+    # the question back to the office. Only for organizations with daily_ops —
+    # without it there are no classes or care rooms to route anyone to, and
+    # `_plan_for_day` would just be an empty query.
+    where_to = {}
+    if module_on('daily_ops', db):
+        day_plan, _by_id, _rooms, _absent = _plan_for_day(db, day_name)
+        where_to = _where_to_by_child(day_plan)
+
     # One query shape for both halves of the roster. It used to be four copies
     # of nearly the same SELECT — two for "some children are absent" and two
     # for "none are" — and the absent halves had already drifted, carrying
@@ -2250,6 +2260,7 @@ def counselor_get_roster():
         ).fetchall()
 
     def child_dict(ch):
+        dest = where_to.get(ch['id'], {})
         return {
             'id': ch['id'],
             'name': ch['name'],
@@ -2265,6 +2276,10 @@ def counselor_get_roster():
             'notes': ch['notes'],
             'parent': ch['parent_name'],
             'parent_email': ch['parent_email'],
+            # Null on an org without daily_ops, or for a child with no
+            # computable destination yet — never a guess (daily_routing.py).
+            'dismiss_to': dest.get('label'),
+            'dismiss_kind': dest.get('kind'),
         }
 
     for school in schools:

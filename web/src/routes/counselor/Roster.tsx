@@ -7,7 +7,12 @@ import {
   Users,
 } from 'lucide-react'
 import { isGone, isHere, STATUS_LABEL } from '@/lib/attendance'
-import { useAttendanceMarks, useMarkAttendance, useRoster } from '@/lib/roster'
+import {
+  destinationSuffix,
+  useAttendanceMarks,
+  useMarkAttendance,
+  useRoster,
+} from '@/lib/roster'
 import { Avatar, Card, EmptyState, Pill, Skeleton } from '@/components/ui'
 import { ChildStatusControl, childSubtitle } from '@/components/ChildStatus'
 
@@ -166,7 +171,7 @@ export function CounselorRoster() {
                           <p className="truncate text-[0.82rem] font-medium text-ink-500">
                             {gone
                               ? STATUS_LABEL.checked_out
-                              : childSubtitle(child)}
+                              : childSubtitle(child) + destinationSuffix(child)}
                           </p>
                         </div>
                         {gone ? (

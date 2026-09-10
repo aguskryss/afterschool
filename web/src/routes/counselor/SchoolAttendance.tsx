@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { isGone, type AttendanceMap } from '@/lib/attendance'
 import {
+  destinationSuffix,
   hhmm,
   schoolProgress,
   useAttendanceMarks,
@@ -85,9 +86,9 @@ function AttendanceList({
                       ? times?.checked_out_at
                         ? `Picked up by parent ${hhmm(times.checked_out_at)}`
                         : 'Picked up by parent'
-                      : times?.checked_in_at
-                        ? `In at ${hhmm(times.checked_in_at)}`
-                        : childSubtitle(child)}
+                      : (times?.checked_in_at
+                          ? `In at ${hhmm(times.checked_in_at)}`
+                          : childSubtitle(child)) + destinationSuffix(child)}
                   </p>
                 </div>
                 {/* A green tick next to "picked up by parent" reads as

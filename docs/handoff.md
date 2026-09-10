@@ -6,6 +6,50 @@ anteriores quedan abajo, no se borran.
 
 ---
 
+## Sesión del 2026-09-10 — "Where to?" en la puerta de la escuela y en el roster
+
+La directora pidió, sobre lo que ya describe §3.4 del spec ("Where to?" del
+Bus Manifest): que el destino del chico se vea **desde la sección escolar**
+(la pantalla de un counselor en la puerta de una escuela, marcando quién sube
+al bus) para que el staff pueda responder ahí mismo en vez de mandar la
+pregunta a la oficina, y que se vea también en la **lista de asistencia**.
+
+### Lo que se agregó
+
+El motor de ruteo (`server/daily_routing.py`) ya calculaba esto para
+`/api/counselor/my-day` (bloque bus) via `_where_to_by_child()` — no era una
+regla nueva, solo faltaba en la pantalla donde el counselor realmente está
+parado a las 3pm. Se conectó la misma función a `/api/counselor/roster`
+(`server/app.py`, `counselor_get_roster`), que es lo que alimentan **las dos
+pantallas que la directora señaló**: `CounselorSchoolAttendance.tsx` (la
+sección escolar, un school a la vez) y `CounselorRoster.tsx` (la lista de
+asistencia por cualquier día).
+
+- `dismiss_to` / `dismiss_kind` viajan en cada child del roster, null cuando
+  la organización no tiene `daily_ops` (sin eso no hay clases ni salones de
+  CARE a los que rutear a nadie) o cuando el motor no puede calcular un
+  destino — nunca una adivinanza, mismo contrato que `daily_routing.py`
+  documenta.
+- `web/src/lib/roster.ts` expone `destinationSuffix()`, compartida por las
+  dos pantallas, que solo agrega texto para `class`/`care` — un `unknown`
+  siempre viaja con un warning que ve un admin en otro lado, y repetir "no
+  destination on file" en cada segunda fila es justo lo que §3.4 pide evitar,
+  no agregar.
+
+Sin migración, sin módulo nuevo: `/api/counselor/roster` sigue siendo core
+(no está en `MODULE_ROUTES`), el cálculo de destino simplemente se salta
+cuando `daily_ops` está apagado.
+
+### Verificado
+
+`npx tsc -b`, `npm run build` y `tests/test_module_access.py` limpios. No se
+corrieron los tests con DB en esta sesión (sin `DATABASE_URL` local) — falta
+correr `test_daily_routing.py`, `test_module_enforcement.py` y confirmar a
+mano en `/today/<school>` y en `Roster` con una organización `daily_ops`
+sembrada.
+
+---
+
 ## Sesión del 2026-08-06 (staff) — el turno de una persona, y los dos avisos
 
 Rama: `claude/caregiver-assignment-schedule-vn9mnt`. El usuario mandó el

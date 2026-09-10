@@ -24,6 +24,10 @@ export type RosterChild = {
   dismissal_time: number | null
   allergies: string | null
   notes: string | null
+  /** Where this child goes first after the bus (§3.4's "Where to?"). Null on
+   *  an org without daily_ops, or when nothing is computable yet. */
+  dismiss_to?: string | null
+  dismiss_kind?: 'class' | 'parents' | 'care' | 'unknown' | null
 }
 
 export type RosterSchool = {
@@ -38,6 +42,20 @@ export type RosterSchool = {
     string,
     { checked_in_at: string | null; checked_out_at: string | null }
   >
+}
+
+/**
+ * "· → Gym" appended to a subtitle line, or "" when there is nothing to say.
+ *
+ * Only 'class' and 'care' are worth a glance at a school gate or on the
+ * roster — 'unknown' always travels with a warning an admin sees elsewhere,
+ * and repeating "no destination on file" on every second row is exactly what
+ * §3.4 asks this screen to prevent, not add.
+ */
+export function destinationSuffix(child: RosterChild): string {
+  if (!child.dismiss_to) return ''
+  if (child.dismiss_kind !== 'class' && child.dismiss_kind !== 'care') return ''
+  return ` · → ${child.dismiss_to}`
 }
 
 /** "4:02 PM" — arrival and departure are only ever read to the minute. */
