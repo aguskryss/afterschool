@@ -6,6 +6,60 @@ anteriores quedan abajo, no se borran.
 
 ---
 
+## Sesión del 2026-09-10 (bis) — los chicos ya no desaparecen al confirmarlos
+
+La directora reportó el bug más grave encontrado hasta ahora en "My day": un
+`GroupCard` (`web/src/routes/counselor/MyDay.tsx`) que llegaba a 100%
+confirmado se colapsaba a una sola línea de resumen y ESCONDÍA los nombres de
+los chicos — la única forma de volver a verlos era tocar "Undo", que además
+deshacía el grupo entero, no un chico. El personal terminaba deshaciendo
+asistencia real solo para poder mirar la lista, lo que anula el propósito del
+sistema.
+
+### Lo que se arregló
+
+- **Se sacó el `if (complete) return (...)` que colapsaba el grupo.** La
+  lista de chicos ahora es siempre visible, completo o no. Un grupo completo
+  sigue teniendo su indicador visual (borde/tilde verde) y un botón "Undo" en
+  el header — pero ya no oculta a nadie para mostrarlo.
+- **Cada chico confirmado muestra desde cuándo**: `checked_at` viajaba en la
+  tabla (`block_checks.created_at`, sql/47) pero nunca salía por
+  `/api/counselor/block-checks` GET. Ahora sí, como `checked_at`, y la fila
+  lee "Here · 3:02p" en vez de desaparecer.
+
+### Lo que se agregó — el cuadrado azul, sql/63
+
+La directora pidió un segundo estado, además de "tengo al chico en la clase"
+(verde): un botón para marcar que **ya fue caminado hasta la próxima
+clase/sala de CARE** (azul) — no aplica a "entregado a un padre", que ya usa
+la firma de R6 en otra pantalla y ya se ve en gris ahí.
+
+- `block_checks.routed_at` (nullable, `sql/63_add_block_checks_routed_at.sql`
+  + rollback en `sql/64`, mirrorado en `init_db()`): un segundo timestamp en
+  la MISMA fila que `created_at`, nunca escrito por un INSERT — solo por un
+  UPDATE sobre una fila que ya existe. Así "routeado sin haber sido
+  confirmado presente" no puede pasar, por construcción, no por validación.
+- `POST /api/counselor/block-checks` ahora acepta `present` y/o `routed` en
+  el mismo body — pueden viajar juntos o por separado. `routed` es un
+  UPDATE puro: un chico sin fila (nunca confirmado presente) es un no-op
+  silencioso, igual que un segundo tap sobre `present` ya confirmado.
+- El botón azul (`web/src/routes/counselor/MyDay.tsx`, `GroupCard`) solo
+  aparece cuando `block.kind === 'class'` y el grupo tiene un destino real
+  (`next`/`care`) — nunca en bloques de CARE room ni en el grupo `parents`.
+  Deshabilitado hasta que el chico esté confirmado en verde primero.
+
+### Verificado
+
+`npx tsc -b`, `npm run build`, `test_module_access.py` y `test_block_checks.py`
+(ambos estáticos, sin DB) limpios. **No corrí `test_my_day.py` ni ningún test
+que escriba en la base** — su propio docstring dice "run against a local
+database" con credenciales de `localhost`, y el `.env` de este repo apunta al
+Supabase de producción de JCCNS. Falta correr esos tests contra una base
+local antes de confiar en la escritura de `routed_at` más allá de la lectura
+del código, y probar el botón azul a mano en el navegador.
+
+---
+
 ## Sesión del 2026-09-10 — "Where to?" en la puerta de la escuela y en el roster
 
 La directora pidió, sobre lo que ya describe §3.4 del spec ("Where to?" del

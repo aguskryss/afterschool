@@ -7275,7 +7275,8 @@ def counselor_block_checks():
         room_slots = [(s[1], s[2]) for s in slots if s[0] == 'room']
         rows = db.execute(
             """
-            SELECT child_id, class_session_id, room_id, school_id, time_block
+            SELECT child_id, class_session_id, room_id, school_id, time_block,
+                   created_at, routed_at
               FROM block_checks
              WHERE check_date = %s
                AND (class_session_id = ANY(%s)
@@ -7296,7 +7297,13 @@ def counselor_block_checks():
                       else 'school' if r['school_id'] else 'room'),
              'id': r['class_session_id'] or r['school_id'] or r['room_id'],
              'time_block': r['time_block'],
-             'child_id': r['child_id']}
+             'child_id': r['child_id'],
+             # When this counselor's own tap confirmed the child (sql/47), and
+             # when a later tap said they had actually been walked to where
+             # `dismiss_to` sends them next (sql/63). The second is never set
+             # without the first.
+             'checked_at': iso_utc(r['created_at']),
+             'routed_at': iso_utc(r['routed_at'])}
             for r in rows
         ],
     })
@@ -7339,7 +7346,15 @@ def counselor_set_block_checks():
         child_ids = [int(c) for c in child_ids]
     except (TypeError, ValueError):
         return jsonify({'error': 'child_ids must be integers'}), 400
-    present = bool(payload.get('present', True))
+
+    # Two independent confirmations can ride the same call, but at least one
+    # has to be there — an empty body would otherwise silently do nothing.
+    has_present = 'present' in payload
+    has_routed = 'routed' in payload
+    if not has_present and not has_routed:
+        return jsonify({'error': "'present' or 'routed' is required"}), 400
+    present = bool(payload.get('present')) if has_present else None
+    routed = bool(payload.get('routed')) if has_routed else None
 
     day = _weekday_name(on_date)
     if day not in daily_routing.WEEKDAYS:
@@ -7356,7 +7371,7 @@ def counselor_set_block_checks():
 
         column = ('class_session_id' if kind == 'class'
                   else 'school_id' if kind == 'school' else 'room_id')
-        if present:
+        if present is True:
             # One statement over the whole list, not a loop: DbConnection has no
             # executemany, and "route all 5" has to be atomic anyway — a group
             # that half-confirmed would show a headcount nobody produced.
@@ -7374,7 +7389,10 @@ def counselor_set_block_checks():
                 """,
                 (on_date, ref, time_block, me, child_ids)
             )
-        else:
+        elif present is False:
+            # A full undo — clears routed_at too, along with everything else
+            # on the row, which is correct: routing a child who is no longer
+            # even confirmed present makes no sense to remember.
             db.execute(
                 f"""
                 DELETE FROM block_checks
@@ -7383,6 +7401,23 @@ def counselor_set_block_checks():
                    AND child_id = ANY(%s)
                 """,
                 (on_date, ref, time_block, child_ids)
+            )
+
+        if routed is not None:
+            # UPDATE only — never an INSERT — so a child can be marked routed
+            # only on a row that already exists, i.e. one already confirmed
+            # present (sql/63). A child nobody has confirmed here yet simply
+            # has no row to update, and this is a silent no-op for them rather
+            # than an error, matching how a second tap on `present` behaves.
+            db.execute(
+                f"""
+                UPDATE block_checks
+                   SET routed_at = CASE WHEN %s THEN CURRENT_TIMESTAMP ELSE NULL END
+                 WHERE check_date = %s AND {column} = %s
+                   AND time_block IS NOT DISTINCT FROM %s
+                   AND child_id = ANY(%s)
+                """,
+                (routed, on_date, ref, time_block, child_ids)
             )
         db.commit()
     except Exception:

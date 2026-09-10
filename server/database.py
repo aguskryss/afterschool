@@ -1221,6 +1221,13 @@ def init_db():
     _add_check(cur, 'block_checks', 'block_checks_school_block_check',
                'school_id IS NULL OR time_block IS NULL')
 
+    # A second, later confirmation on the same row (sql/63): has this child
+    # actually been walked to where `created_at` said they go next. Never set
+    # by an INSERT — only ever an UPDATE on a row that already exists — so a
+    # row cannot be routed without first having been confirmed present.
+    cur.execute("ALTER TABLE block_checks ADD COLUMN IF NOT EXISTS routed_at "
+                "TIMESTAMP")
+
     # An upload parses into rows here and writes nothing to children until an
     # admin confirms, so the numbers they approved and the numbers that commit
     # come from one parse rather than two. roster_import_rows.parsed is a second

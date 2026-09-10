@@ -16,7 +16,9 @@ import {
   checkKey,
   useBlockChecks,
   useSetBlockChecks,
+  useSetRouted,
   type BlockRef,
+  type CheckState,
 } from '@/lib/blockChecks'
 import { hasAllergy, shortAllergy } from '@/lib/roster'
 import { Card, EmptyState, Skeleton } from '@/components/ui'
@@ -79,6 +81,16 @@ function clock(value: string | null | undefined): string {
   const [h, m] = value.split(':').map(Number)
   const hour = h % 12 === 0 ? 12 : h % 12
   return `${hour}:${String(m).padStart(2, '0')}${h < 12 ? 'a' : 'p'}`
+}
+
+/** An ISO timestamp (`checked_at`/`routed_at`) as "4:45p", in the viewer's
+ *  own clock — never a UTC hour read as if it were local (see iso_utc()). */
+function clockFromIso(value: string | null | undefined): string {
+  if (!value) return ''
+  const d = new Date(value)
+  const h = d.getHours()
+  const hour = h % 12 === 0 ? 12 : h % 12
+  return `${hour}:${String(d.getMinutes()).padStart(2, '0')}${h < 12 ? 'a' : 'p'}`
 }
 
 /** The pickup hour as the sheets write it: 3, 4, 5 or 6. Null is never 6. */
@@ -541,6 +553,7 @@ function BlockContent({
   const ref = blockRef(block)
   const { data: checks } = useBlockChecks(date)
   const setChecks = useSetBlockChecks(date)
+  const setRouted = useSetRouted(date)
 
   const expected = block.children.filter((c) => !c.absent)
   const done = ref
@@ -617,11 +630,15 @@ function BlockContent({
               <GroupCard
                 key={g.id}
                 group={g}
+                blockKind={block.kind}
                 blockRef={ref}
                 checks={checks}
                 verb={verb}
                 onSet={(childIds, present) =>
                   ref && setChecks.mutate({ block: ref, childIds, present })
+                }
+                onRoute={(childIds, routed) =>
+                  ref && setRouted.mutate({ block: ref, childIds, routed })
                 }
               />
             ))}
@@ -634,51 +651,69 @@ function BlockContent({
 
 function GroupCard({
   group,
+  blockKind,
   blockRef: ref,
   checks,
   verb,
   onSet,
+  onRoute,
 }: {
   group: Group
+  blockKind: Block['kind']
   blockRef: BlockRef | null
-  checks: Set<string> | undefined
+  checks: Map<string, CheckState> | undefined
   verb: string
   onSet: (childIds: number[], present: boolean) => void
+  onRoute: (childIds: number[], routed: boolean) => void
 }) {
   const [openAllergy, setOpenAllergy] = useState<number | null>(null)
   const expected = group.children.filter((c) => !c.absent)
-  const isOn = (c: Child) => Boolean(ref && checks?.has(checkKey(ref, c.child_id)))
+  const stateOf = (c: Child): CheckState | undefined =>
+    ref ? checks?.get(checkKey(ref, c.child_id)) : undefined
+  const isOn = (c: Child) => Boolean(stateOf(c))
   const done = expected.filter(isOn).length
   const complete = expected.length > 0 && done === expected.length
-  const withAllergy = group.children.filter((c) => hasAllergy(c.allergies)).length
 
-  // A finished group recedes to one line so the eye lands on what is still
-  // open — and so a big class fits: four groups at full height do not.
-  if (complete) {
-    return (
-      <section className="mb-3.5 break-inside-avoid rounded-card border-s-4 border-s-leaf-500 bg-leaf-50 md:mb-4">
-        <div className="flex items-center gap-2.5 p-3">
+  // The blue "walked to their next stop" control only means something for a
+  // class handing a child on to another class or a CARE room — never for a
+  // room block (nobody is routed FROM the room they are already sitting in
+  // here) and never for a parent pickup, which is a release with a signature
+  // (spec R6) tracked elsewhere and already shows gray there once it happens.
+  const routable = blockKind === 'class' && (group.kind === 'next' || group.kind === 'care')
+
+  return (
+    <section
+      className={`mb-3.5 break-inside-avoid overflow-hidden rounded-card border-s-4 bg-white shadow-soft md:mb-4 ${
+        complete
+          ? 'border-s-leaf-500'
+          : group.kind === 'parents'
+            ? 'border-s-leaf-500'
+            : group.kind === 'next'
+              ? 'border-s-sky-500'
+              : group.kind === 'unknown'
+                ? 'border-s-sun-500'
+                : 'border-s-canvas-200'
+      }`}
+    >
+      <div className="flex items-center gap-2.5 p-3">
+        {complete && (
           <CircleCheckBig
             className="size-5 shrink-0 text-leaf-600"
             strokeWidth={2.4}
           />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[0.98rem] font-extrabold text-leaf-700">
-              {group.name}
-            </p>
-            <p className="text-[0.8rem] font-bold text-leaf-700/85">
-              {expected.length} of {expected.length} {verb}
-            </p>
-          </div>
-          {/* The allergy marker survives the collapse. "Everyone is here" is
-              exactly when a counselor stops reading this group, so it is the
-              one fact the green state must not swallow. */}
-          {withAllergy > 0 && (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-berry-50 px-2 py-1 text-[0.8rem] font-extrabold text-berry-700">
-              <TriangleAlert className="size-3.5" strokeWidth={2.4} />
-              {withAllergy}
-            </span>
-          )}
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[1.02rem] leading-tight font-extrabold tracking-tight text-ink-900">
+            {group.name}
+          </p>
+          <p className="mt-0.5 text-[0.8rem] font-bold text-ink-400">
+            {complete ? `${expected.length} of ${expected.length} ${verb}` : group.when}
+          </p>
+        </div>
+        {/* A bulk undo stays available once everyone is confirmed — the list
+            below never hides them, so this is a convenience, not the only way
+            back to seeing who is in the group. */}
+        {complete ? (
           <button
             type="button"
             onClick={() => onSet(expected.map((c) => c.child_id), false)}
@@ -686,40 +721,18 @@ function GroupCard({
           >
             Undo
           </button>
-        </div>
-      </section>
-    )
-  }
-
-  return (
-    <section
-      className={`mb-3.5 break-inside-avoid overflow-hidden rounded-card border-s-4 bg-white shadow-soft md:mb-4 ${
-        group.kind === 'parents'
-          ? 'border-s-leaf-500'
-          : group.kind === 'next'
-            ? 'border-s-sky-500'
-            : group.kind === 'unknown'
-              ? 'border-s-sun-500'
-              : 'border-s-canvas-200'
-      }`}
-    >
-      <div className="flex items-center gap-2.5 p-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-[1.02rem] leading-tight font-extrabold tracking-tight text-ink-900">
-            {group.name}
-          </p>
-          <p className="mt-0.5 text-[0.8rem] font-bold text-ink-400">
-            {group.when}
-          </p>
-        </div>
-        <span className="grid h-9 min-w-10 shrink-0 place-items-center rounded-xl bg-canvas-100 px-2 text-[0.92rem] font-extrabold text-ink-700">
-          {done}/{expected.length}
-        </span>
+        ) : (
+          <span className="grid h-9 min-w-10 shrink-0 place-items-center rounded-xl bg-canvas-100 px-2 text-[0.92rem] font-extrabold text-ink-700">
+            {done}/{expected.length}
+          </span>
+        )}
       </div>
 
       <ul>
         {group.children.map((child) => {
-          const on = isOn(child)
+          const state = stateOf(child)
+          const on = Boolean(state)
+          const routed = Boolean(state?.routed_at)
           const allergies = hasAllergy(child.allergies)
             ? child.allergies!.trim()
             : undefined
@@ -759,7 +772,43 @@ function GroupCard({
                       </span>
                     )}
                   </p>
+                  {/* The point of this whole screen: a confirmed child stays
+                      right here, with a status and a time, instead of the row
+                      disappearing until someone taps Undo to see them again. */}
+                  {on && (
+                    <p
+                      className={`text-[0.78rem] font-extrabold ${
+                        routed ? 'text-sky-600' : 'text-leaf-600'
+                      }`}
+                    >
+                      {routed
+                        ? `Routed to ${child.dismiss_to ?? 'next stop'} · ${clockFromIso(state?.routed_at)}`
+                        : `Here · ${clockFromIso(state?.checked_at)}`}
+                    </p>
+                  )}
                 </div>
+
+                {/* The second control: once a child is confirmed here, this
+                    marks that they have actually been walked to where
+                    `dismiss_to` says they go next — a class or a CARE room.
+                    Disabled until the green check is on: nobody is routed FROM
+                    a block they were never confirmed in. */}
+                {routable && (
+                  <button
+                    type="button"
+                    disabled={!on}
+                    aria-pressed={routed}
+                    aria-label={`${routed ? 'Undo route for' : 'Mark routed to next stop for'} ${child.name}`}
+                    onClick={() => onRoute([child.child_id], !routed)}
+                    className={`grid size-10 shrink-0 place-items-center rounded-xl border-2 transition-colors disabled:opacity-25 ${
+                      routed
+                        ? 'border-sky-500 bg-sky-500 text-white'
+                        : 'border-canvas-200 bg-white text-ink-300'
+                    }`}
+                  >
+                    <ArrowRight className="size-5" strokeWidth={3} />
+                  </button>
+                )}
 
                 {/* Second-strongest field on the row, in its own column so the
                     times line up as a readable stripe. It was 12.5px grey
@@ -820,7 +869,9 @@ function GroupCard({
         })}
       </ul>
 
-      {expected.length > 0 && (
+      {/* Once everyone is confirmed there is nothing left for this button to
+          do — "Confirm the other 0" — so it makes way for the Undo above. */}
+      {expected.length > 0 && !complete && (
         <div className="p-3 pt-1.5">
           <button
             type="button"
