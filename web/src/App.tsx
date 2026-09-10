@@ -115,6 +115,10 @@ const ADMIN_ROUTES: [string, ReactNode][] = [
   ['/activities', <ModuleGuard module="activities"><AdminActivities /></ModuleGuard>],
   ['/activity-times', <ModuleGuard module="activities"><AdminActivitySchedules /></ModuleGuard>],
   ['/live-board', <ModuleGuard module="check_in_out"><AdminLiveBoard /></ModuleGuard>],
+  // One school's actual roster — names, who is already in, tap to mark
+  // present or absent. Same screen the counselor uses at a school gate; see
+  // CounselorSchoolAttendance's own doc comment for why sharing it is safe.
+  ['/live-board/:schoolId', <ModuleGuard module="check_in_out"><CounselorSchoolAttendance /></ModuleGuard>],
   ['/attendance', <AdminAttendance />],
   ['/pickup-log', <ModuleGuard module="secure_pickup"><AdminPickupLog /></ModuleGuard>],
   // The live release itself, distinct from the log above (a report of

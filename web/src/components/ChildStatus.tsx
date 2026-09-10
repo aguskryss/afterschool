@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, TriangleAlert } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
+import { readSession } from '@/lib/auth'
 import { Button, Pill } from '@/components/ui'
 import {
   STATUS_LABEL,
@@ -47,9 +48,17 @@ export function ChildStatusControl({
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
 
+  // Shared with the admin portal (AdminLiveBoard's per-school drill-down):
+  // two endpoints, same behavior, because an admin is not scoped to a set of
+  // schools the way counselor_covers_child expects — see admin_set_child_status.
+  const endpoint =
+    readSession()?.role === 'admin'
+      ? '/api/admin/child-status'
+      : '/api/counselor/child-status'
+
   const set = useMutation({
     mutationFn: (status: Status) =>
-      api('/api/counselor/child-status', {
+      api(endpoint, {
         method: 'POST',
         body: { child_id: childId, status, date, note: note.trim() || null },
       }),

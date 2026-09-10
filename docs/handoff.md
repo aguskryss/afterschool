@@ -6,6 +6,65 @@ anteriores quedan abajo, no se borran.
 
 ---
 
+## Sesión del 2026-09-10 (6) — el admin entra a la lista real de cada escuela
+
+La directora pidió, desde "Live board" (lo que ella llama "embarque en
+vivo"): poder click-ear una escuela y ver la lista real de chicos — quién ya
+está, y poder marcar presente/ausente ahí mismo — no solo los números
+agregados que el board ya mostraba (Expected/In building/Picked up/Absent).
+
+### Por qué no fue una pantalla nueva desde cero
+
+`CounselorSchoolAttendance.tsx` (la pantalla de asistencia por escuela del
+counselor) ya es exactamente esa pantalla. Y ya hay un precedente exacto en
+el código para compartir una pantalla de counselor con el admin en vez de
+reimplementarla: `PickupRelease` se monta en `/pickup` (counselor) y
+`/pickup-release` (admin) porque "un padre a veces va a la oficina en vez de
+la escuela — alguien igual tiene que tomar la firma", y sus mismos hooks
+(`useRoster`, `useAttendanceMarks`) ya aceptan una sesión de admin.
+
+Seguí el mismo patrón en vez de escribir una segunda implementación:
+
+- **`App.tsx`**: `CounselorSchoolAttendance` se monta también en
+  `/live-board/:schoolId`, dentro de `ADMIN_ROUTES` (mismo `ModuleGuard
+  check_in_out` que ya protege `/live-board`).
+- **`CounselorSchoolAttendance.tsx`**: el único lugar que tenía que saber en
+  qué portal está es el botón "volver" — `backTo` lee el rol de
+  `readSession()` y manda a `/today` (counselor) o `/live-board` (admin) en
+  vez de tener `/today` clavado en cinco lugares.
+- **`ChildStatusControl`** (el menú de "not_found"/"issue"/"absent" que
+  cuelga de cada fila): en vez de ensanchar el endpoint del counselor, elige
+  entre `/api/counselor/child-status` y `/api/admin/child-status` según el
+  rol — **el admin ya tenía su propio endpoint gemelo** (`admin_set_child_status`,
+  server/app.py), solo el componente de React no sabía que existía.
+- **`server/app.py`**, `counselor_submit_attendance` (`POST
+  /api/counselor/attendance`, el tap que marca a un chico en el bus): este
+  **sí** hizo falta ensancharlo a `('counselor', 'admin')` — no existe un
+  `/api/admin/attendance` POST equivalente, y su propio GET ya aceptaba
+  admin con exactamente este razonamiento ("`counselor_school_ids` no
+  encuentra filas para un admin y devuelve None — todas las escuelas —
+  mismo comportamiento que el GET").
+- **`AdminLiveBoard`**: cada tarjeta de escuela suma un link "View roster"
+  → `/live-board/{school_id}`, en vez de convertir la tarjeta entera en un
+  link (mismo criterio de "una acción con etiqueta, no todo el bloque
+  clickeable" que ya usa `SchoolCard` del counselor en `Today.tsx`).
+
+### Verificado
+
+`npx tsc -b`, `npm run build`, `test_module_access.py` y
+`test_no_legacy_portals.py` (relevante porque esto es reuso de pantalla
+entre roles dentro de la SPA, no un portal nuevo) limpios.
+
+**No probé el tap de marcar presente/ausente como admin contra la base
+real** — a diferencia de las verificaciones de solo lectura de las sesiones
+anteriores, esto escribe (`attendance_records`), y no iba a mutar asistencia
+real de JCCNS sin que alguien lo pida explícitamente. Falta que la directora
+entre como admin, click-ee "View roster" en una escuela desde Live board, y
+confirme que marcar presente/ausente funciona igual que en la pantalla del
+counselor.
+
+---
+
 ## Sesión del 2026-09-10 (5) — un chico recogido desaparece de TODO el resto del día
 
 La directora pidió lo que llamó "rendición de cuentas en tiempo real": en

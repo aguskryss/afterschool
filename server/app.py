@@ -7958,8 +7958,17 @@ def attendance_stream():
 @app.route('/api/counselor/attendance', methods=['POST'])
 @jwt_required()
 def counselor_submit_attendance():
+    """Tick children onto the bus — the write side of counselor_get_roster.
+
+    Also admin, same reasoning as that GET: an admin marking attendance from
+    the office (a school never sent a counselor, or the director is standing
+    in) reads and writes through this same pair rather than a second
+    implementation. counselor_school_ids(db, admin_user_id, ...) finds no
+    counselor_schools rows for an admin and returns None — every school —
+    same as the GET side.
+    """
     claims = get_jwt()
-    if claims.get('role') != 'counselor':
+    if claims.get('role') not in ('counselor', 'admin'):
         return jsonify({'error': 'Unauthorized'}), 403
 
     user_id = get_jwt_identity()

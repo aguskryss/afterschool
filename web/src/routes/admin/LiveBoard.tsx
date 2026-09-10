@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { School, TriangleAlert, UserRound } from 'lucide-react'
+import { ChevronRight, School, TriangleAlert, UserRound } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
 import { readSession } from '@/lib/auth'
 import { notifyError } from '@/lib/confirm'
@@ -262,6 +263,17 @@ export function AdminLiveBoard() {
                     <Stat label="Problems" value={s.problems} tone="coral" />
                     <Stat label="Absent" value={s.absent} />
                   </div>
+
+                  {/* The actual names, not just the counts above — who is
+                      here, and a tap to mark someone present or absent. Same
+                      roster screen a counselor uses at the gate. */}
+                  <Link
+                    to={`/live-board/${s.school_id}`}
+                    className="flex min-h-12 items-center justify-center gap-1.5 border-t border-canvas-200 px-3 text-[0.88rem] font-extrabold text-sky-700 transition-colors hover:bg-sky-50"
+                  >
+                    View roster
+                    <ChevronRight className="size-4" strokeWidth={2.6} />
+                  </Link>
                 </Card>
               ))}
             </div>

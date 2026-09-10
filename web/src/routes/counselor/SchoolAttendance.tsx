@@ -8,6 +8,7 @@ import {
   Users,
 } from 'lucide-react'
 import { isGone, type AttendanceMap } from '@/lib/attendance'
+import { readSession } from '@/lib/auth'
 import {
   destinationSuffix,
   hhmm,
@@ -162,10 +163,19 @@ function AttendanceList({
  * losing the morning. What Submit adds is the end of the job: it records
  * "not on the bus" for whoever was never ticked, which is what turns a
  * half-marked school into an answered one.
+ *
+ * SHARED WITH THE ADMIN PORTAL, same reasoning as PickupRelease: a school
+ * that has nobody at the gate yet, or a director double-checking one
+ * herself, reads and writes through this same screen rather than a second
+ * implementation — App.tsx mounts it again at /live-board/:schoolId under
+ * AdminShell, and the data hooks and endpoints below already accept an
+ * admin session. `backTo` is the one thing that has to know which portal it
+ * is in, since "all schools" is a different screen for each.
  */
 export function CounselorSchoolAttendance() {
   const { schoolId } = useParams()
   const navigate = useNavigate()
+  const backTo = readSession()?.role === 'admin' ? '/live-board' : '/today'
   const { data: roster, isPending } = useRoster()
 
   const school = roster?.find((s) => String(s.school_id) === schoolId)
@@ -194,7 +204,7 @@ export function CounselorSchoolAttendance() {
             title="School not found"
             body="It isn't on your list for today."
             action={
-              <Button variant="outline" onClick={() => navigate('/today')}>
+              <Button variant="outline" onClick={() => navigate(backTo)}>
                 Back to schools
               </Button>
             }
@@ -208,7 +218,7 @@ export function CounselorSchoolAttendance() {
 
   const doSubmit = () => {
     if (submitted) {
-      navigate('/today')
+      navigate(backTo)
       return
     }
     // Nobody here *and* nobody gone home means not one child was ever marked
@@ -221,14 +231,14 @@ export function CounselorSchoolAttendance() {
     }
     submit.mutate(
       pending.map((c) => ({ childId: c.id, present: false })),
-      { onSuccess: () => navigate('/today') },
+      { onSuccess: () => navigate(backTo) },
     )
   }
 
   return (
     <div className="mx-auto w-full max-w-2xl px-5 pt-5 pb-8">
       <Link
-        to="/today"
+        to={backTo}
         className="mb-3 -ml-1 inline-flex items-center gap-1 text-[0.85rem] font-bold text-ink-500 transition-colors hover:text-ink-800"
       >
         <ChevronLeft className="size-4" strokeWidth={2.8} />
@@ -271,7 +281,7 @@ export function CounselorSchoolAttendance() {
                 <p className="mb-2.5 text-[0.82rem] font-semibold text-ink-500">
                   All {total} accounted for · {here} in the building
                 </p>
-                <Button variant="outline" full onClick={() => navigate('/today')}>
+                <Button variant="outline" full onClick={() => navigate(backTo)}>
                   Back to schools
                 </Button>
               </>
