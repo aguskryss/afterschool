@@ -6,6 +6,50 @@ anteriores quedan abajo, no se borran.
 
 ---
 
+## Sesión del 2026-09-10 (4) — cuándo se avisó una ausencia, y quién avisó
+
+La directora pidió, en la pantalla de Absences del admin, ver cuándo llegó el
+aviso de ausencia — no solo que el chico está ausente. Ejemplo suyo: "Ausente
+– Informado por el padre/madre / Enviado: 9 de septiembre a las 14:17". La
+razón: al verificar asistencia necesita saber si el dato ya estaba cargado
+cuando debía, o si hay que llamar a la familia recién ahora.
+
+`absences.created_at` y `absences.marked_by` ya existían (sql original) pero
+`GET /api/admin/absences` nunca los leía — la query solo traía nombre del
+chico, del padre y la escuela.
+
+### Lo que se agregó
+
+- `server/app.py` (`admin_get_absences`): ahora hace LEFT JOIN a `absences`
+  Y a `recurring_absences` (por si el día viene de una regla semanal, no de
+  un aviso puntual) y a `users` sobre `marked_by`, para devolver
+  `reported_at`, `reported_by_name`, `reported_by_role` y `recurring`. El
+  aviso puntual gana si existen los dos — es el acto más específico —,
+  igual que `absent_child_ids_for_date` ya prioriza en su UNION.
+- `reported_by_role === 'parent'` es lo que distingue "avisó la familia" de
+  "lo cargó el staff" (una llamada telefónica, vía `POST /api/admin/absences`
+  o el `MarkAbsent` de esta misma pantalla) — ambos casos ya escribían
+  `marked_by`, solo faltaba leer el rol de esa cuenta.
+- `web/src/routes/admin/Operations.tsx` (`AdminAbsences`): nueva columna
+  "Reported" — "Reported by parent" / "Marked by {nombre}" / "Recurring
+  absence", con "Sent {fecha} a las {hora}" o "Set up {fecha}" debajo.
+
+### Verificado
+
+`npx tsc -b`, `npm run build`, `test_module_access.py` limpios (no es ruta
+nueva, no toca módulos). Confirmado contra la base real de JCCNS (solo
+lecturas): 8 ausentes hoy jueves, todos avisos puntuales — 6 de padres
+identificados por nombre y rol `parent`, 2 cargados por Heather (`admin`),
+con timestamps reales que en algún caso son de varios días antes (avisos
+cargados con anticipación).
+
+No toqué `export_absences` (el Excel de rango de fechas) — pidió la pantalla,
+no el export, y ese endpoint itera día por día solo con
+`absent_child_ids_for_date` sin traer `created_at`; agregarlo ahí es un
+cambio más grande que se puede pedir aparte si hace falta.
+
+---
+
 ## Sesión del 2026-09-10 (tris) — de dónde viene el chico, no solo a dónde va
 
 La directora pidió el espejo de `Dismiss To`: la pantalla de clase de un

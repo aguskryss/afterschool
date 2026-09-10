@@ -7436,6 +7436,17 @@ def counselor_set_block_checks():
 @app.route('/api/admin/absences', methods=['GET'])
 @jwt_required()
 def admin_get_absences():
+    """Who is out today, and — the part a phone call at the door needs —
+    when and by whom it was reported.
+
+    `absent_child_ids_for_date` answers yes/no by unioning a one-off row
+    (`absences`) with an active weekday rule (`recurring_absences`); this
+    reads the SAME two tables again, this time for their own `created_at` and
+    `marked_by`, so a director checking whether a child was expected can see
+    the report itself, not just its conclusion. The one-off row wins when
+    both exist for the same day — it is the more specific act — which is
+    also why `absent_child_ids_for_date`'s own UNION never has to choose.
+    """
     if not require_admin():
         return jsonify({'error': 'Unauthorized'}), 403
     date_str = request.args.get('date', today_for_org())
@@ -7448,17 +7459,43 @@ def admin_get_absences():
     if not absent_ids:
         db.close()
         return jsonify([])
+    day = _weekday_name(datetime.strptime(date_str, '%Y-%m-%d').date())
     absences = db.execute("""
-        SELECT c.id as child_id, c.name as child_name, u.name as parent_name,
-               s.name as school, %s::text as absence_date
-        FROM children c
-        JOIN users u ON c.parent_id = u.id
-        JOIN schools s ON c.school_id = s.id
-        WHERE c.id = ANY(%s)
-        ORDER BY s.name, c.name
-    """, (date_str, list(absent_ids))).fetchall()
+        SELECT c.id AS child_id, c.name AS child_name, u.name AS parent_name,
+               s.name AS school, %s::text AS absence_date,
+               a.created_at AS one_off_reported_at,
+               ra.created_at AS recurring_set_up_at,
+               mb.name AS reported_by_name, mb.role AS reported_by_role
+          FROM children c
+          JOIN users u ON c.parent_id = u.id
+          JOIN schools s ON c.school_id = s.id
+          LEFT JOIN absences a
+                 ON a.child_id = c.id AND a.absence_date = %s
+          LEFT JOIN recurring_absences ra
+                 ON ra.child_id = c.id AND ra.day_of_week = %s
+                AND ra.start_date <= %s
+                AND (ra.end_date IS NULL OR ra.end_date >= %s)
+          LEFT JOIN users mb ON mb.id = COALESCE(a.marked_by, ra.marked_by)
+         WHERE c.id = ANY(%s)
+         ORDER BY s.name, c.name
+    """, (date_str, date_str, day, date_str, date_str, list(absent_ids))).fetchall()
     db.close()
-    return jsonify([dict(a) for a in absences])
+    return jsonify([{
+        'child_id': a['child_id'],
+        'child_name': a['child_name'],
+        'parent_name': a['parent_name'],
+        'school': a['school'],
+        'absence_date': a['absence_date'],
+        # The one-off report's own timestamp when there is one; otherwise
+        # when the standing weekly rule covering this date was set up.
+        'reported_at': iso_utc(a['one_off_reported_at'] or a['recurring_set_up_at']),
+        'reported_by_name': a['reported_by_name'],
+        # 'parent' says a parent reported it themselves; anything else (an
+        # admin phoning it in, or a stale marked_by with no user left to
+        # read) is staff acting on the family's behalf.
+        'reported_by_role': a['reported_by_role'],
+        'recurring': a['one_off_reported_at'] is None and a['recurring_set_up_at'] is not None,
+    } for a in absences])
 
 
 @app.route('/api/admin/absences', methods=['POST'])

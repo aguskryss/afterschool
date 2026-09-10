@@ -273,6 +273,23 @@ type AbsenceRow = {
   parent_name: string
   school: string
   absence_date: string
+  /** The report's own timestamp — a one-off's, or the standing weekly
+   *  rule's if this date has no one-off entry of its own. */
+  reported_at: string | null
+  reported_by_name: string | null
+  /** 'parent' says the family reported it themselves; anything else is
+   *  staff acting on their behalf (a phone call, most often). */
+  reported_by_role: string | null
+  recurring: boolean
+}
+
+/** "Sep 9 at 2:17 PM" — when a report actually landed, not just its date. */
+function formatReportedAt(iso: string): string {
+  const d = new Date(iso)
+  return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at ${d.toLocaleTimeString(
+    'en-US',
+    { hour: 'numeric', minute: '2-digit' },
+  )}`
 }
 
 type ChildOption = { id: number; name: string; school: string }
@@ -538,6 +555,33 @@ export function AdminAbsences() {
     { key: 'child_name', header: 'Child' },
     { key: 'parent_name', header: 'Parent' },
     { key: 'school', header: 'School' },
+    {
+      key: 'reported',
+      header: 'Reported',
+      value: (r) => r.reported_at ?? '',
+      render: (r) => {
+        if (!r.reported_at) {
+          // Data from before this column existed, or a marked_by whose
+          // account is gone — never invented, just not shown.
+          return <span className="text-ink-400">—</span>
+        }
+        const label = r.recurring
+          ? 'Recurring absence'
+          : r.reported_by_role === 'parent'
+            ? 'Reported by parent'
+            : r.reported_by_name
+              ? `Marked by ${r.reported_by_name}`
+              : 'Marked by staff'
+        return (
+          <div>
+            <p className="font-bold text-ink-800">{label}</p>
+            <p className="text-[0.82rem] font-semibold text-ink-400">
+              {r.recurring ? 'Set up' : 'Sent'} {formatReportedAt(r.reported_at)}
+            </p>
+          </div>
+        )
+      },
+    },
     {
       key: 'actions',
       header: '',
