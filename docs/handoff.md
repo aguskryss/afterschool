@@ -6,6 +6,63 @@ anteriores quedan abajo, no se borran.
 
 ---
 
+## Sesión del 2026-09-10 (5) — un chico recogido desaparece de TODO el resto del día
+
+La directora pidió lo que llamó "rendición de cuentas en tiempo real": en
+cualquier momento de la tarde, el staff tiene que poder abrir la app y saber
+dónde está un chico, dónde debería estar, y si ya lo recogieron — sin tener
+que verificar a mano. El caso concreto: un chico que se retira a las 4:20p
+seguía apareciendo como pendiente de confirmar en la lista de CARE de 5-6,
+porque el motor de ruteo (`plan_day()`) arma el plan de la tarde entero a
+partir del horario semanal, sin ninguna noción de que alguien ya vino y se
+lo llevó.
+
+### Lo que se agregó
+
+`_plan_for_day()` (`server/app.py`) ahora trae también, para la fecha
+puntual, quién ya fue retirado hoy: un `SELECT child_id, checked_out_at FROM
+attendance_records WHERE ... checked_out_at IS NOT NULL`, la misma fuente que
+ya alimenta el pill "Gone" de la pantalla de la escuela (R6, la firma en el
+release). Antes solo devolvía `absent`; ahora devuelve también `released`
+(dict child_id → checked_out_at), y **los cuatro call sites** que
+desestructuran la tupla (`parent_get_children`, el roster del "Where to?",
+`daily_ops_daily_board`, `counselor_my_day`) se actualizaron para pasarlo.
+
+- `_child_line()` gana `released`/`released_at`, tratado exactamente como ya
+  se trata `absent`: el chico se queda en la lista (nunca se saca la fila),
+  se excluye de `present`/`expected`/`done` en los tres lugares que ya
+  excluían a los ausentes, y ordena al final igual que un ausente
+  (`_by_absent_then_name` ahora es `absent or released`).
+- **No asumí que `absent` y `released` son mutuamente excluyentes** — son dos
+  tablas separadas (`absences` y `attendance_records`) y nada impide que las
+  dos sean ciertas a la vez (un aviso de ausencia que nadie sacó antes de que
+  igual lo retiraran). La UI trata la combinación igual que cualquiera de
+  las dos solas.
+- `parent_get_children` (la pantalla "dónde está mi hijo ahora" del padre) 
+  también se corrigió de yapa: ya no le dice a un padre que su hijo "está en
+  el Gym ahora" si ya lo vino a buscar — se salta a cualquier chico en
+  `released` antes de armar `locations`.
+- `MyDay.tsx`: la fila del chico retirado reemplaza el check verde por un
+  badge gris "GONE" (mismo tamaño que el checkbox, no una pill chiquita —
+  pedido explícito de que se vea grande), la línea de estado dice "Picked up
+  · 4:20p — not expected here anymore", y el botón azul de ruteo desaparece
+  (no hay a dónde rutear a alguien que ya se fue).
+- `DailyBoard.tsx` (admin): mismo tratamiento con una `Pill status="neutral"`
+  junto al nombre, igual que la pill "absent" ya existente.
+
+### Verificado
+
+`npx tsc -b`, `npm run build`, y los tres estáticos
+(`test_module_access`, `test_daily_routing`, `test_block_checks`) limpios.
+Confirmado contra la base real de JCCNS (solo lecturas, mismo patrón de
+siempre): la query de `released` corre sin error — 0 chicos retirados en el
+momento de la sesión (temprano en la tarde, antes de que arranquen los
+retiros de hoy), así que no hay todavía un caso real donde comparar contra
+`test_my_day.py`. Falta confirmarlo a mano en el navegador después de un
+retiro real, o contra una base local con `test_my_day.py`.
+
+---
+
 ## Sesión del 2026-09-10 (4) — cuándo se avisó una ausencia, y quién avisó
 
 La directora pidió, en la pantalla de Absences del admin, ver cuándo llegó el

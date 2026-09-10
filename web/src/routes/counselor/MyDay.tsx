@@ -9,6 +9,7 @@ import {
   ChevronRight,
   CircleCheckBig,
   Clock,
+  LogOut,
   TriangleAlert,
 } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -31,6 +32,9 @@ type Child = {
   dismissal_time: number | null
   allergies: string | null
   absent: boolean
+  /** Already picked up today, in this block or an earlier one. */
+  released: boolean
+  released_at: string | null
   /** Classes only: where this child goes when the class lets out. */
   dismiss_to?: string | null
   dismiss_kind?: 'class' | 'parents' | 'care' | 'unknown'
@@ -486,7 +490,9 @@ function BlockPicker({
     >
       {blocks.map((b, i) => {
         const ref = blockRef(b)
-        const expected = b.children.filter((c) => !c.absent)
+        // Picked up already counts as accounted for, same as absent — a chip
+        // does not sit at "3 of 4" forever because the fourth left at 4:20.
+        const expected = b.children.filter((c) => !c.absent && !c.released)
         const done = ref
           ? expected.filter((c) => checks?.has(checkKey(ref, c.child_id))).length
           : 0
@@ -559,7 +565,7 @@ function BlockContent({
   const setChecks = useSetBlockChecks(date)
   const setRouted = useSetRouted(date)
 
-  const expected = block.children.filter((c) => !c.absent)
+  const expected = block.children.filter((c) => !c.absent && !c.released)
   const done = ref
     ? expected.filter((c) => checks?.has(checkKey(ref, c.child_id))).length
     : 0
@@ -671,7 +677,10 @@ function GroupCard({
   onRoute: (childIds: number[], routed: boolean) => void
 }) {
   const [openAllergy, setOpenAllergy] = useState<number | null>(null)
-  const expected = group.children.filter((c) => !c.absent)
+  // Picked up already, elsewhere or earlier in this same block, is accounted
+  // for the same way absent is — nobody has to go check whether a child who
+  // left at 4:20 was ever still expected in a 5-6 room.
+  const expected = group.children.filter((c) => !c.absent && !c.released)
   const stateOf = (c: Child): CheckState | undefined =>
     ref ? checks?.get(checkKey(ref, c.child_id)) : undefined
   const isOn = (c: Child) => Boolean(stateOf(c))
@@ -744,23 +753,37 @@ function GroupCard({
           return (
             <li
               key={child.child_id}
-              className={`border-t border-canvas-100 ${child.absent ? 'opacity-55' : ''}`}
+              className={`border-t border-canvas-100 ${
+                child.absent || child.released ? 'opacity-55' : ''
+              }`}
             >
               <div className="flex items-center gap-2.5 py-1.5 ps-3 pe-3">
-                <button
-                  type="button"
-                  disabled={child.absent || !ref}
-                  aria-pressed={on}
-                  aria-label={`${on ? 'Undo' : 'Mark'} ${child.name} ${verb}`}
-                  onClick={() => onSet([child.child_id], !on)}
-                  className={`grid size-12 shrink-0 place-items-center rounded-2xl border-2 transition-colors disabled:opacity-40 ${
-                    on
-                      ? 'border-leaf-500 bg-leaf-500 text-white'
-                      : 'border-canvas-200 bg-white text-transparent'
-                  }`}
-                >
-                  <Check className="size-6" strokeWidth={3} />
-                </button>
+                {/* Picked up already replaces the checkbox entirely, the same
+                    way the school-gate list turns into a "Gone" pill: the row
+                    stays, but there is nothing left here to tap. */}
+                {child.released ? (
+                  <span className="flex h-12 w-14 shrink-0 flex-col items-center justify-center gap-0.5 rounded-2xl bg-canvas-100 text-ink-400">
+                    <LogOut className="size-4" strokeWidth={2.6} />
+                    <span className="text-[0.62rem] font-extrabold tracking-wide uppercase">
+                      Gone
+                    </span>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={child.absent || !ref}
+                    aria-pressed={on}
+                    aria-label={`${on ? 'Undo' : 'Mark'} ${child.name} ${verb}`}
+                    onClick={() => onSet([child.child_id], !on)}
+                    className={`grid size-12 shrink-0 place-items-center rounded-2xl border-2 transition-colors disabled:opacity-40 ${
+                      on
+                        ? 'border-leaf-500 bg-leaf-500 text-white'
+                        : 'border-canvas-200 bg-white text-transparent'
+                    }`}
+                  >
+                    <Check className="size-6" strokeWidth={3} />
+                  </button>
+                )}
 
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[1rem] leading-tight font-extrabold text-ink-900">
@@ -785,19 +808,29 @@ function GroupCard({
                       </span>
                     )}
                   </p>
-                  {/* The point of this whole screen: a confirmed child stays
-                      right here, with a status and a time, instead of the row
-                      disappearing until someone taps Undo to see them again. */}
-                  {on && (
-                    <p
-                      className={`text-[0.78rem] font-extrabold ${
-                        routed ? 'text-sky-600' : 'text-leaf-600'
-                      }`}
-                    >
-                      {routed
-                        ? `Routed to ${child.dismiss_to ?? 'next stop'} · ${clockFromIso(state?.routed_at)}`
-                        : `Here · ${clockFromIso(state?.checked_at)}`}
+                  {/* The point of this whole screen: a confirmed — or already
+                      released — child stays right here, with a status and a
+                      time, instead of the row disappearing until someone taps
+                      Undo to see them again. Released wins over on/routed: a
+                      child who left is not "here" any more no matter what an
+                      earlier tap in this same block said. */}
+                  {child.released ? (
+                    <p className="text-[0.78rem] font-extrabold text-ink-400">
+                      Picked up{child.released_at ? ` · ${clockFromIso(child.released_at)}` : ''}
+                      {' — not expected here anymore'}
                     </p>
+                  ) : (
+                    on && (
+                      <p
+                        className={`text-[0.78rem] font-extrabold ${
+                          routed ? 'text-sky-600' : 'text-leaf-600'
+                        }`}
+                      >
+                        {routed
+                          ? `Routed to ${child.dismiss_to ?? 'next stop'} · ${clockFromIso(state?.routed_at)}`
+                          : `Here · ${clockFromIso(state?.checked_at)}`}
+                      </p>
+                    )
                   )}
                 </div>
 
@@ -805,8 +838,9 @@ function GroupCard({
                     marks that they have actually been walked to where
                     `dismiss_to` says they go next — a class or a CARE room.
                     Disabled until the green check is on: nobody is routed FROM
-                    a block they were never confirmed in. */}
-                {routable && (
+                    a block they were never confirmed in. Never shown once
+                    they are already gone — there is nothing left to route. */}
+                {routable && !child.released && (
                   <button
                     type="button"
                     disabled={!on}

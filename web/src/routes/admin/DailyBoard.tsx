@@ -28,6 +28,8 @@ type Child = {
   dismissal_time: number | null
   allergies: string | null
   absent: boolean
+  released: boolean
+  released_at: string | null
   dismiss_to?: string | null
   dismiss_kind?: 'class' | 'parents' | 'care' | 'unknown'
   arrive_from?: string | null
@@ -134,6 +136,16 @@ function clock(value: string | null): string {
   const [h, m] = value.split(':').map(Number)
   const hour = h % 12 === 0 ? 12 : h % 12
   return `${hour}:${String(m).padStart(2, '0')}${h < 12 ? 'a' : 'p'}`
+}
+
+/** An ISO timestamp (`released_at`) as "4:20p", in the viewer's own clock —
+ *  never a UTC hour read as if it were local (see iso_utc() server-side). */
+function clockFromIso(value: string | null): string {
+  if (!value) return '—'
+  const d = new Date(value)
+  const h = d.getHours()
+  const hour = h % 12 === 0 ? 12 : h % 12
+  return `${hour}:${String(d.getMinutes()).padStart(2, '0')}${h < 12 ? 'a' : 'p'}`
 }
 
 /** The pickup hour as the sheets write it. Null is a gap, never six. */
@@ -430,7 +442,10 @@ function Sheet({
             </thead>
             <tbody className="divide-y divide-canvas-200">
               {rows.map((child) => (
-                <tr key={child.child_id} className={child.absent ? 'opacity-55' : ''}>
+                <tr
+                  key={child.child_id}
+                  className={child.absent || child.released ? 'opacity-55' : ''}
+                >
                   <td className="px-4 py-2 font-semibold text-ink-500">
                     {child.school ?? '—'}
                   </td>
@@ -447,6 +462,16 @@ function Sheet({
                     {child.absent && (
                       <span className="ms-2">
                         <Pill status="berry">absent</Pill>
+                      </span>
+                    )}
+                    {/* Already picked up, in this block or an earlier one —
+                        another reason a row stays greyed out with nothing
+                        left to confirm. */}
+                    {child.released && (
+                      <span className="ms-2">
+                        <Pill status="neutral">
+                          gone{child.released_at ? ` · ${clockFromIso(child.released_at)}` : ''}
+                        </Pill>
                       </span>
                     )}
                     {hasAllergy(child.allergies) && (

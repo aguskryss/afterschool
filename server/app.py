@@ -1603,11 +1603,15 @@ def parent_get_children():
     if module_on('daily_ops', db) and today_day in daily_routing.WEEKDAYS:
         now_time = now_for_org(db).time()
         current_block = daily_routing.block_of(now_time)
-        plan, _by_id, _rooms, _absent = _plan_for_day(db, today_day, today)
+        plan, _by_id, _rooms, _absent, released = _plan_for_day(db, today_day, today)
         for session in plan['classes']:
             start, end = session.get('start_time'), session.get('end_time')
             if start and end and start <= now_time < end:
                 for entry in session['children']:
+                    # A parent who already came and went should not be told
+                    # their child is "in the Gym now" from an old plan.
+                    if entry['child_id'] in released:
+                        continue
                     locations[entry['child_id']] = {
                         'kind': 'class', 'name': session['name'],
                     }
@@ -1616,6 +1620,8 @@ def parent_get_children():
                 if group['time_block'] != current_block or not group['room_name']:
                     continue
                 for entry in group['children']:
+                    if entry['child_id'] in released:
+                        continue
                     locations.setdefault(entry['child_id'], {
                         'kind': 'care', 'name': group['room_name'],
                     })
@@ -2225,7 +2231,7 @@ def counselor_get_roster():
     # `_plan_for_day` would just be an empty query.
     where_to = {}
     if module_on('daily_ops', db):
-        day_plan, _by_id, _rooms, _absent = _plan_for_day(db, day_name)
+        day_plan, _by_id, _rooms, _absent, _released = _plan_for_day(db, day_name)
         where_to = _where_to_by_child(day_plan)
 
     # One query shape for both halves of the roster. It used to be four copies
@@ -6804,8 +6810,9 @@ _ENGINE_CLASS_COLUMNS = ('id, name, day_of_week, start_time, end_time, '
 def _plan_for_day(db, day, on_date=None):
     """Run the routing engine over one weekday. Returns its plan, plus lookups.
 
-    `on_date` only affects the absence marks — the plan itself is about the
-    weekday, since registrations, classes and care rules are all weekly.
+    `on_date` only affects the absence marks and who has already been picked
+    up — the plan itself is about the weekday, since registrations, classes
+    and care rules are all weekly.
     """
     children = [dict(r) for r in db.execute(
         """
@@ -6844,11 +6851,23 @@ def _plan_for_day(db, day, on_date=None):
 
     absent = (absent_child_ids_for_date(db, on_date.isoformat())
               if on_date else set())
+    # Already picked up today — keyed by child_id to carry WHEN, same as
+    # `released_at` reads it below. A class or care block later in the
+    # afternoon is the routing engine's static weekly plan; it has no idea a
+    # parent already came and went, so that has to be layered on here, once,
+    # for every screen this function feeds.
+    released = ({r['child_id']: r['checked_out_at'] for r in db.execute(
+        """
+        SELECT child_id, checked_out_at FROM attendance_records
+         WHERE attendance_date = %s AND checked_out_at IS NOT NULL
+        """,
+        (on_date.isoformat(),)
+    ).fetchall()} if on_date else {})
     by_id = {c['id']: c for c in children}
-    return plan, by_id, rooms, absent
+    return plan, by_id, rooms, absent, released
 
 
-def _child_line(row, by_id, absent):
+def _child_line(row, by_id, absent, released=None):
     """One child as a counselor reads them, on either sheet.
 
     Allergies travel with every row on purpose: it is the one field that changes
@@ -6856,6 +6875,7 @@ def _child_line(row, by_id, absent):
     leave the list they are holding to find it.
     """
     child = by_id.get(row['child_id'], {})
+    checked_out_at = (released or {}).get(row['child_id'])
     return {
         'child_id': row['child_id'],
         'name': row['child_name'],
@@ -6867,11 +6887,23 @@ def _child_line(row, by_id, absent):
         # than dropped, so a counselor knows not to go looking, and excluded
         # from the count for the same reason.
         'absent': row['child_id'] in absent,
+        # Already picked up today, in an EARLIER block than this one (or this
+        # very block, released mid-hour). Kept in the list for the same
+        # reason `absent` is: a class starting at 5 still lists a child who
+        # left at 4:20, marked instead of dropped, so nobody has to go check
+        # whether they were ever expected here. `absences` and
+        # `attendance_records` are two separate tables with nothing stopping
+        # both being true for the same child and date (a parent's absence
+        # report that never got cleared before someone released the child
+        # anyway) — the UI treats that combination the same as either alone,
+        # greyed out with nothing to confirm.
+        'released': checked_out_at is not None,
+        'released_at': iso_utc(checked_out_at),
     }
 
 
 def _by_absent_then_name(line):
-    return (line['absent'], (line['name'] or '').lower())
+    return (line['absent'] or line['released'], (line['name'] or '').lower())
 
 
 def _where_to_by_child(plan):
@@ -6942,7 +6974,7 @@ def daily_ops_daily_board():
 
     db = get_db()
     try:
-        plan, by_id, rooms, absent = _plan_for_day(db, day, on_date)
+        plan, by_id, rooms, absent, released = _plan_for_day(db, day, on_date)
         staff, stood_down = _staff_by_slot(db, day, on_date)
         rules = _care_rules(db, day)
         grade_counts, ungraded = _roster_grades(db, day)
@@ -6968,7 +7000,7 @@ def daily_ops_daily_board():
     sheets_classes = []
     for session in plan['classes']:
         key = ('class', session['id'])
-        children = [{**_child_line(r, by_id, absent),
+        children = [{**_child_line(r, by_id, absent, released),
                      'dismiss_to': r['dismiss_to']['label'],
                      'dismiss_kind': r['dismiss_to']['kind'],
                      'arrive_from': r['arrive_from']['label'],
@@ -6976,7 +7008,7 @@ def daily_ops_daily_board():
                      'chained': r['chained']}
                     for r in session['children']]
         children.sort(key=_by_absent_then_name)
-        present = sum(1 for c in children if not c['absent'])
+        present = sum(1 for c in children if not c['absent'] and not c['released'])
         if not staff.get(key) and children:
             warnings.append({'code': 'class_without_staff',
                              'label': session['name'],
@@ -7011,13 +7043,13 @@ def daily_ops_daily_board():
     for group in plan['care']:
         key = ('room', group['room_id'], group['time_block'])
         segment = labels.get((group['time_block'], group['room_id']), {})
-        children = [{**_child_line(r, by_id, absent),
+        children = [{**_child_line(r, by_id, absent, released),
                      'partial': r['partial'],
                      'from_class': r['from_class'],
                      'to_class': r['to_class']}
                     for r in group['children']]
         children.sort(key=_by_absent_then_name)
-        present = sum(1 for c in children if not c['absent'])
+        present = sum(1 for c in children if not c['absent'] and not c['released'])
         if not staff.get(key) and children:
             label = group['room_name'] or 'This room'
             warnings.append({'code': 'room_without_staff',
@@ -7083,7 +7115,7 @@ def counselor_my_day():
         if not mine:
             return jsonify({'date': on_date.isoformat(), 'day': day,
                             'blocks': [], 'closed': False})
-        plan, by_id, rooms, absent = _plan_for_day(db, day, on_date)
+        plan, by_id, rooms, absent, released = _plan_for_day(db, day, on_date)
         my_schools = {slot[1] for slot in mine if slot[0] == 'school'}
         school_names = ({r['id']: r['name'] for r in db.execute(
             "SELECT id, name FROM schools WHERE id = ANY(%s)",
@@ -7111,7 +7143,7 @@ def counselor_my_day():
             'location': session['location'],
             'with': alongside(slot),
             'children': [
-                {**_child_line(r, by_id, absent),
+                {**_child_line(r, by_id, absent, released),
                  'dismiss_to': r['dismiss_to']['label'],
                  'dismiss_kind': r['dismiss_to']['kind'],
                  'arrive_from': r['arrive_from']['label'],
@@ -7137,7 +7169,7 @@ def counselor_my_day():
                 daily_routing.BLOCK_BOUNDS[group['time_block']][1]),
             'with': alongside(slot),
             'children': [
-                {**_child_line(r, by_id, absent),
+                {**_child_line(r, by_id, absent, released),
                  # The Care sheet's BOLD: here for only part of the hour.
                  'partial': r['partial'],
                  'from_class': r['from_class'],
@@ -7168,7 +7200,7 @@ def counselor_my_day():
                     {**_child_line({'child_id': c['id'], 'child_name': c['name'],
                                     'grade_label': c['grade_label'],
                                     'dismissal_time': c['dismissal_time']},
-                                   by_id, absent),
+                                   by_id, absent, released),
                      'dismiss_to': where_to.get(c['id'], {}).get('label'),
                      'dismiss_kind': where_to.get(c['id'], {}).get('kind', 'unknown'),
                      'chained': False}
@@ -7185,7 +7217,7 @@ def counselor_my_day():
     for block in blocks:
         block['children'].sort(key=_by_absent_then_name)
         block['present_count'] = sum(
-            1 for c in block['children'] if not c['absent'])
+            1 for c in block['children'] if not c['absent'] and not c['released'])
 
     return jsonify({
         'date': on_date.isoformat(),
