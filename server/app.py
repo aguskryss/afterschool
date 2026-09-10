@@ -6971,6 +6971,8 @@ def daily_ops_daily_board():
         children = [{**_child_line(r, by_id, absent),
                      'dismiss_to': r['dismiss_to']['label'],
                      'dismiss_kind': r['dismiss_to']['kind'],
+                     'arrive_from': r['arrive_from']['label'],
+                     'arrive_kind': r['arrive_from']['kind'],
                      'chained': r['chained']}
                     for r in session['children']]
         children.sort(key=_by_absent_then_name)
@@ -7112,6 +7114,8 @@ def counselor_my_day():
                 {**_child_line(r, by_id, absent),
                  'dismiss_to': r['dismiss_to']['label'],
                  'dismiss_kind': r['dismiss_to']['kind'],
+                 'arrive_from': r['arrive_from']['label'],
+                 'arrive_kind': r['arrive_from']['kind'],
                  # R3's own convention: she marks a chained child with `**`.
                  'chained': r['chained']}
                 for r in session['children']

@@ -26,6 +26,7 @@ from datetime import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from server.daily_routing import (  # noqa: E402
+    ARRIVE_BUS,
     BLOCK_BOUNDS,
     DEST_CARE,
     DEST_CLASS,
@@ -39,6 +40,7 @@ from server.daily_routing import (  # noqa: E402
     W_NO_CARE_ROOM,
     W_NO_DISMISSAL,
     W_NO_GRADE,
+    arrive_from,
     assignment_span,
     block_of,
     care_blocks,
@@ -50,8 +52,10 @@ from server.daily_routing import (  # noqa: E402
     grade_label,
     grade_range_label,
     next_chained_class,
+    origin_block_of,
     parse_class_times,
     plan_day,
+    prev_chained_class,
     resolve_care_room,
     staff_gaps,
     staff_overlaps,
@@ -409,6 +413,47 @@ def main() -> int:
     check('no care room means no destination', dest['kind'], DEST_UNKNOWN)
     check('and says so rather than picking a room',
           [n['code'] for n in notes], [W_NO_CARE_ROOM])
+
+    # ── arrive_from: the same question, asked backwards ────────────────────
+    # origin_block_of: a class starting exactly where a block ends pulls its
+    # origin from THAT block, not the one that is only just beginning.
+    check('a class starting at 4:00 is pulled out of 3-4, not 4-5',
+          origin_block_of(at('16:00')), '3-4')
+    check('a class starting mid-block is pulled out of that same block',
+          origin_block_of(at('15:15')), '3-4')
+    check('a class starting at 5:00 is pulled out of 4-5',
+          origin_block_of(at('17:00')), '4-5')
+
+    # prev_chained_class: R3's own mirror.
+    check('a class ending when this one starts is the previous link',
+          prev_chained_class([BBALL, CRAFTING], CRAFTING)['id'], BBALL['id'])
+    check('the mirror is directional too',
+          prev_chained_class([BBALL, CRAFTING], BBALL), None)
+    check('a ten-minute gap is not a previous link either',
+          prev_chained_class([BBALL, late], late), None)
+
+    # arrive_from's three branches, in the same order dismiss_to states them.
+    origin = arrive_from([BBALL, CRAFTING], CRAFTING, room(OCEAN))
+    check('the chained class wins first, same as forward',
+          (origin['kind'], origin['class_id']), (DEST_CLASS, BBALL['id']))
+
+    origin = arrive_from([SWIM], SWIM, room(OCEAN))
+    check('nothing runs before 3:00, so the origin is the bus',
+          (origin['kind'], origin['label']), (ARRIVE_BUS, 'Bus'))
+
+    origin = arrive_from([TINKER], TINKER, room(OCEAN))
+    check('otherwise the care room for the block this class pulls them out of',
+          (origin['kind'], origin['room_id']), (DEST_CARE, OCEAN))
+
+    check('a class with no start time has no computable origin',
+          arrive_from([CHESS], CHESS, room(OCEAN))['kind'], DEST_UNKNOWN)
+    check('and neither does one with no care room to point at',
+          arrive_from([TINKER], TINKER, None)['kind'], DEST_UNKNOWN)
+    # Unlike dismiss_to, none of these carry a warning — see the module's own
+    # note on why an unresolved origin is not a child at risk of going to the
+    # wrong place, just a label this screen does not get to show.
+    check('arrive_from never raises a warning of its own',
+          isinstance(arrive_from([CHESS], CHESS, None), dict), True)
 
     # ── The Care sheet's BOLD, which nobody types ──────────────────────────
     # Its legend: "BOLD = will only be there for part of the time due to the

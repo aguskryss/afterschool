@@ -306,6 +306,13 @@ DEST_PARENTS = 'parents'
 DEST_CARE = 'care'
 DEST_UNKNOWN = 'unknown'
 
+#: What an ORIGIN can be — the mirror question, "where was this child right
+#: before this class started". Shares DEST_CLASS/DEST_CARE/DEST_UNKNOWN's
+#: values on purpose: 'class' and 'care' mean the same thing on either side of
+#: the mirror. 'bus' has no destination equivalent — nobody is ever dismissed
+#: TO the bus — so it is the one new kind.
+ARRIVE_BUS = 'bus'
+
 #: Warning codes. §6.3 asks the admin board to show "child with no computable
 #: destination"; these say which kind, because the fix differs for each.
 W_NO_DISMISSAL = 'no_dismissal_time'
@@ -477,6 +484,86 @@ def dismiss_to(
 
     return ({'kind': DEST_CARE, 'room_id': care_room['room_id'],
              'label': care_room.get('room_name')}, warnings)
+
+
+# ── The mirror question: where a child was, right before a class started ───
+#
+# Staff standing at a class of 30+ can see who is enrolled, but not where each
+# child is coming FROM — which matters exactly as much as where they go next
+# when children are moving between six different places at once. `arrive_from`
+# answers it with the same three branches as `dismiss_to`, read backwards: the
+# class that hands off into this one, else the bus if nothing runs before this
+# class today, else the care room for the block ending where this one starts.
+#
+# Deliberately no warnings of its own. Unlike `dismiss_to`, an unresolved
+# origin is not a child who might go home to the wrong place — it is a label
+# this screen does not get to show, and the underlying data problem (a class
+# with no start time, a grade no care rule covers) is already the warning
+# `dismiss_to` raises for whichever class or block actually has it.
+
+
+def origin_block_of(start: time) -> str | None:
+    """The block whose care room a child was sitting in right before `start`.
+
+    If `start` lands exactly where a block ends, THAT block is the origin — a
+    class starting at 4:00 pulls a child out of the 3-4 room, not the 4-5 one,
+    because 4-5 has not begun yet. Otherwise `start` is strictly inside a
+    block, and that same block is where they were waiting for this class to
+    begin.
+    """
+    for block, (_start, end) in BLOCK_BOUNDS.items():
+        if end == start:
+            return block
+    return block_of(start)
+
+
+def prev_chained_class(classes: list[dict], arriving: dict) -> dict | None:
+    """R3, read backwards: the class that ends exactly when `arriving` starts.
+
+    Mirror of `next_chained_class`. Exactly, not "shortly before" — the same
+    reasoning applies: a gap of even ten minutes is a child who was somewhere
+    else in between, which is care, not a hallway.
+    """
+    start = arriving.get('start_time')
+    if not start:
+        return None
+    for candidate in _timed(classes):
+        if candidate['id'] != arriving['id'] and candidate['end_time'] == start:
+            return candidate
+    return None
+
+
+def arrive_from(classes: list[dict], arriving: dict, care_room: dict | None) -> dict:
+    """Where a child was immediately before `arriving` starts.
+
+    `classes` is every class this child has that weekday, same as
+    `dismiss_to`. `care_room` is the already-resolved rule for the block
+    ENDING where this class starts — `origin_block_of(arriving['start_time'])`
+    — resolving it here would mean this function needed the rules, the grade
+    and the weekday, and the caller already has all three.
+
+    Always has a `kind`; 'unknown' means nothing here has an answer, not that
+    one was skipped.
+    """
+    start = arriving.get('start_time')
+    if not start:
+        return {'kind': DEST_UNKNOWN, 'label': None}
+
+    chained = prev_chained_class(classes, arriving)
+    if chained:
+        return {'kind': DEST_CLASS, 'class_id': chained['id'],
+                'label': chained.get('name')}
+
+    if start <= DAY_START:
+        # Nothing runs before the program's own opening minute — the only
+        # thing that could have preceded this class is the bus.
+        return {'kind': ARRIVE_BUS, 'label': 'Bus'}
+
+    if care_room is None:
+        return {'kind': DEST_UNKNOWN, 'label': None}
+
+    return {'kind': DEST_CARE, 'room_id': care_room['room_id'],
+            'label': care_room.get('room_name')}
 
 
 def care_segments(
@@ -693,6 +780,17 @@ def plan_day(
                 mine, session, child.get('dismissal_time'),
                 room_for(child, block) if block else None)
             warn(child, notes)
+
+            start = session.get('start_time')
+            origin_block = origin_block_of(start) if start else None
+            arrival = arrive_from(
+                mine, session, room_for(child, origin_block) if origin_block else None)
+            if arrival['kind'] == ARRIVE_BUS:
+                # A generic 'Bus' from the pure engine, named to the school the
+                # bus actually came from — arrive_from() has no child in scope
+                # to know that; plan_day() does.
+                arrival = {**arrival, 'label': child.get('school_name') or 'Bus'}
+
             class_rosters[session['id']].append({
                 'child_id': child['id'],
                 'child_name': child.get('name'),
@@ -701,6 +799,7 @@ def plan_day(
                                 else grade_label(child['grade_num'])),
                 'dismissal_time': child.get('dismissal_time'),
                 'dismiss_to': destination,
+                'arrive_from': arrival,
                 # R3's own convention: she marks chained kids with `**`.
                 'chained': destination['kind'] == DEST_CLASS,
             })

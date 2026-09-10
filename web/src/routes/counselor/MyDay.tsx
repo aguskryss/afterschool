@@ -34,6 +34,10 @@ type Child = {
   /** Classes only: where this child goes when the class lets out. */
   dismiss_to?: string | null
   dismiss_kind?: 'class' | 'parents' | 'care' | 'unknown'
+  /** Classes only: where this child was right before this class started —
+   *  the school they bused in from, a care room, or a chained class. */
+  arrive_from?: string | null
+  arrive_kind?: 'bus' | 'class' | 'care' | 'unknown'
   chained?: boolean
   /** Care only: here for part of the hour, because of a class. */
   partial?: boolean
@@ -762,6 +766,15 @@ function GroupCard({
                   <p className="truncate text-[1rem] leading-tight font-extrabold text-ink-900">
                     {child.name}
                   </p>
+                  {/* Where they were right before this class — the thing a
+                      counselor with 30+ kids moving between six places cannot
+                      see just from the enrollment list. Only classes have an
+                      origin; a care room has no "arrives from" of its own. */}
+                  {blockKind === 'class' && child.arrive_from && (
+                    <p className="truncate text-[0.8rem] font-bold text-ink-400">
+                      From {child.arrive_from}
+                    </p>
+                  )}
                   <p className="text-[0.86rem] leading-tight font-semibold text-ink-500">
                     {child.grade_label && `Gr ${child.grade_label}`}
                     {child.grade_label && child.school && ' · '}

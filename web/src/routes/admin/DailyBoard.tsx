@@ -30,6 +30,8 @@ type Child = {
   absent: boolean
   dismiss_to?: string | null
   dismiss_kind?: 'class' | 'parents' | 'care' | 'unknown'
+  arrive_from?: string | null
+  arrive_kind?: 'bus' | 'class' | 'care' | 'unknown'
   chained?: boolean
   partial?: boolean
   from_class?: string | null
@@ -305,7 +307,7 @@ export function AdminDailyBoard() {
                     staff={block.staff}
                     present={block.present_count}
                     capacity={block.capacity}
-                    columns={['School', 'Name', 'Gr', 'Out', 'Dismiss to']}
+                    columns={['School', 'Name', 'Gr', 'From', 'Out', 'Dismiss to']}
                     rows={block.children}
                     kind="classes"
                   />
@@ -459,6 +461,17 @@ function Sheet({
                   </td>
                   {kind === 'classes' ? (
                     <>
+                      {/* Where they were right before this class — the same
+                          question the Dismiss to column answers, asked
+                          backwards, so staff moving 30+ kids between rooms
+                          can see both ends of the trip on one row. */}
+                      <td className="px-4 py-2 font-semibold text-ink-600">
+                        {child.arrive_kind === 'unknown' || !child.arrive_from ? (
+                          <span className="text-ink-400">—</span>
+                        ) : (
+                          child.arrive_from
+                        )}
+                      </td>
                       <td className="px-4 py-2 font-semibold text-ink-600">
                         {pickup(child.dismissal_time)}
                       </td>

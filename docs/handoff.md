@@ -6,6 +6,59 @@ anteriores quedan abajo, no se borran.
 
 ---
 
+## Sesión del 2026-09-10 (tris) — de dónde viene el chico, no solo a dónde va
+
+La directora pidió el espejo de `Dismiss To`: la pantalla de clase de un
+counselor (`My day`) y el board del admin ya dicen a dónde va un chico cuando
+la clase termina, pero no de dónde vino — un problema real con 30+ chicos
+moviéndose entre seis lugares a la vez. Pidió explícitamente **no tocar** las
+secciones de CARE que ya muestran `from_class`/`to_class` (§3.6), y agregar
+el origen **debajo del nombre y encima de grado/escuela** en la fila de cada
+chico.
+
+### El motor — `arrive_from()`, espejo de `dismiss_to()`
+
+`server/daily_routing.py` gana `origin_block_of()`, `prev_chained_class()` y
+`arrive_from()` — las mismas tres ramas de R2/R3 leídas al revés: la clase
+encadenada que termina justo cuando esta empieza: si no hay ninguna y la
+clase arranca en el minuto de apertura del programa (`DAY_START`, 3pm), el
+origen es el bus; si no, el salón de CARE del bloque que termina donde esta
+clase arranca. `plan_day()` lo llama una vez por chico por clase y lo guarda
+como `arrive_from` en cada fila del roster de clases — nunca en el de CARE,
+que sigue exactamente igual.
+
+**A propósito, sin warnings propios.** A diferencia de `dismiss_to`, un
+origen sin resolver no es un chico en riesgo de ir al lugar equivocado — es
+una etiqueta que esta pantalla no llega a mostrar, y el problema de fondo (una
+clase sin hora de inicio, un grado sin regla de CARE) ya es el warning que
+`dismiss_to` levanta para la clase o el bloque que realmente lo tiene.
+
+### Dónde sale
+
+- `/api/counselor/my-day` y `/api/admin/daily-board` — ambos ya comparten
+  `_plan_for_day()`, así que un solo cambio alimenta a los dos. Cada chico de
+  una clase lleva `arrive_from`/`arrive_kind` ('bus' | 'class' | 'care' |
+  'unknown'); un origen de bus llega genérico como `'Bus'` del motor puro y
+  `plan_day()` lo nombra con la escuela real (`child.get('school_name')`) —
+  el motor no tiene el chico en scope para saberlo, `plan_day()` sí.
+- `MyDay.tsx` (`GroupCard`): nueva línea "From {origen}" entre el nombre y
+  grado/escuela, solo en bloques de clase.
+- `DailyBoard.tsx` (admin): nueva columna "From" en la tabla de clases, entre
+  Grado y Salida — la de CARE sigue con su "From / to class" de siempre, sin
+  tocar.
+
+### Verificado
+
+`npx tsc -b`, `npm run build`, y los tres estáticos/puros
+(`test_module_access`, `test_block_checks`, `test_daily_routing` — este
+último con 9 checks nuevos para `arrive_from`) limpios. Comprobado además
+contra la base real de producción (solo lecturas, mismo patrón que
+`scripts/verify_roster.py`): **124 filas de roster de clase hoy jueves,
+0 sin resolver** — 70 de bus (con el nombre real de la escuela), 32 de CARE,
+22 encadenadas de otra clase.
+
+---
+
 ## Sesión del 2026-09-10 (bis) — los chicos ya no desaparecen al confirmarlos
 
 La directora reportó el bug más grave encontrado hasta ahora en "My day": un
