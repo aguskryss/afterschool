@@ -3781,6 +3781,94 @@ def admin_set_second_guardian(child_id):
     return jsonify(dict(row))
 
 
+# The paperwork checklist's own CHECK constraints (child_compliance,
+# server/database.py) are the authority; these mirror them the same way
+# CHILD_STATUSES mirrors attendance_records' — so a bad value 400s here
+# instead of reaching Postgres as a constraint violation.
+COMPLIANCE_ITEMS = (
+    'registration', 'registration_fee', 'membership', 'pickup_form',
+    'first_aid', 'medication', 'photo', 'physical', 'immunization',
+    'complete', 'bday_card',
+)
+COMPLIANCE_STATUSES = ('done', 'pending', 'waived', 'na', 'missing', 'other')
+
+
+@app.route('/api/admin/children/<int:child_id>/compliance', methods=['PUT'])
+@jwt_required()
+def admin_set_child_compliance(child_id):
+    """Set one paperwork checklist item by hand, without re-uploading a roster.
+
+    Same upsert `_apply_compliance()` does in roster_staging.py on import —
+    one row per (child, item), UNIQUE-keyed on that pair — reachable from the
+    admin screen so a single correction (a registration fee that came in
+    after the sheet was uploaded) does not need a whole new import to record.
+    Importing again later still lands on the same row rather than a second
+    one, for the same reason.
+    """
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    data = request.json or {}
+    item = data.get('item')
+    status = data.get('status')
+    if item not in COMPLIANCE_ITEMS:
+        return jsonify({'error': 'Unknown paperwork item'}), 400
+    if status not in COMPLIANCE_STATUSES:
+        return jsonify({'error': 'Unknown status'}), 400
+    raw_value = (data.get('raw_value') or '').strip() or None
+    recorded_on = data.get('recorded_on') or None
+    if recorded_on:
+        try:
+            recorded_on = parse_date(recorded_on)
+        except ValueError:
+            return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD.'}), 400
+
+    db = get_db()
+    try:
+        child = db.execute(
+            "SELECT id FROM children WHERE id = %s", (child_id,)
+        ).fetchone()
+        if not child:
+            return jsonify({'error': 'Child not found'}), 404
+        row = db.execute("""
+            INSERT INTO child_compliance (child_id, item, status, recorded_on, raw_value)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (child_id, item) DO UPDATE
+               SET status = EXCLUDED.status,
+                   recorded_on = EXCLUDED.recorded_on,
+                   raw_value = EXCLUDED.raw_value,
+                   updated_at = CURRENT_TIMESTAMP
+            RETURNING item, status, recorded_on, raw_value
+        """, (child_id, item, status, recorded_on, raw_value)).fetchone()
+        db.commit()
+    finally:
+        db.close()
+    return jsonify(dict(row))
+
+
+@app.route('/api/admin/children/<int:child_id>/compliance/<item>',
+           methods=['DELETE'])
+@jwt_required()
+def admin_clear_child_compliance(child_id, item):
+    """Back to "not recorded" — a real state a blank spreadsheet cell already
+    has (child_compliance writes no row for one), so clearing a mistaken
+    entry by hand should be able to reach it too, not just the six statuses.
+    """
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    if item not in COMPLIANCE_ITEMS:
+        return jsonify({'error': 'Unknown paperwork item'}), 400
+    db = get_db()
+    try:
+        db.execute(
+            "DELETE FROM child_compliance WHERE child_id = %s AND item = %s",
+            (child_id, item),
+        )
+        db.commit()
+    finally:
+        db.close()
+    return jsonify({'deleted': True})
+
+
 @app.route('/api/admin/children/<int:child_id>/second-guardian/invite',
            methods=['POST'])
 @jwt_required()

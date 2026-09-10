@@ -465,6 +465,190 @@ type Compliance = {
   raw_value: string | null
 }
 
+/** The fixed checklist (server/database.py's own CHECK on child_compliance).
+ *  Shown for every child, present in the roster or not — the roster upload
+ *  writes no row for a blank cell, and "no row" is exactly the state this
+ *  screen should let an admin fill in by hand instead of re-uploading. */
+const COMPLIANCE_ITEMS: { key: string; label: string }[] = [
+  { key: 'registration', label: 'Registration' },
+  { key: 'registration_fee', label: 'Registration fee' },
+  { key: 'membership', label: 'Membership' },
+  { key: 'pickup_form', label: 'Pickup form' },
+  { key: 'first_aid', label: 'First aid' },
+  { key: 'medication', label: 'Medication' },
+  { key: 'photo', label: 'Photo' },
+  { key: 'physical', label: 'Physical' },
+  { key: 'immunization', label: 'Immunization' },
+  { key: 'complete', label: 'Complete' },
+  { key: 'bday_card', label: 'Birthday card' },
+]
+
+const COMPLIANCE_STATUS_LABEL: Record<string, string> = {
+  done: 'Done',
+  pending: 'Pending',
+  waived: 'Waived',
+  na: 'N/A',
+  missing: 'Missing',
+  other: 'Other',
+}
+
+const COMPLIANCE_STATUS_TONE: Record<
+  string,
+  'leaf' | 'sun' | 'berry' | 'coral' | 'neutral'
+> = {
+  done: 'leaf',
+  pending: 'sun',
+  waived: 'neutral',
+  na: 'neutral',
+  missing: 'berry',
+  other: 'neutral',
+}
+
+/**
+ * One paperwork item — a name, a status pill, and the roster's own free-text
+ * note. Tapping it opens the same three fields as a fresh row, so filling in
+ * a child added by hand looks exactly like correcting one the roster already
+ * covered.
+ */
+function ComplianceRow({
+  childId,
+  itemKey,
+  label,
+  entry,
+}: {
+  childId: number
+  itemKey: string
+  label: string
+  entry: Compliance | undefined
+}) {
+  const qc = useQueryClient()
+  const key = ['admin', 'child', String(childId)]
+  const [editing, setEditing] = useState(false)
+  const [status, setStatus] = useState(entry?.status ?? 'done')
+  const [rawValue, setRawValue] = useState(entry?.raw_value ?? '')
+  const [error, setError] = useState('')
+
+  const save = useMutation({
+    mutationFn: () =>
+      api(`/api/admin/children/${childId}/compliance`, {
+        method: 'PUT',
+        body: { item: itemKey, status, raw_value: rawValue.trim() || null },
+      }),
+    onSuccess: () => {
+      setEditing(false)
+      setError('')
+      void qc.invalidateQueries({ queryKey: key })
+    },
+    onError: (e) =>
+      setError(e instanceof ApiError ? e.message : 'Could not save that.'),
+  })
+
+  const clear = useMutation({
+    mutationFn: () =>
+      api(`/api/admin/children/${childId}/compliance/${itemKey}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => {
+      setEditing(false)
+      void qc.invalidateQueries({ queryKey: key })
+    },
+    onError: (e) =>
+      notifyError(
+        'Could not clear that',
+        e instanceof ApiError ? e.message : undefined,
+      ),
+  })
+
+  if (editing) {
+    return (
+      <div className="flex flex-col gap-2 border-b border-canvas-200 py-3 last:border-0">
+        <p className="text-[0.9rem] font-bold text-ink-700">{label}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            className="h-10 shrink-0 rounded-2xl border-2 border-canvas-200 bg-white px-3 text-[0.9rem] font-semibold text-ink-900 outline-none focus:border-sky-500"
+          >
+            {Object.entries(COMPLIANCE_STATUS_LABEL).map(([value, text]) => (
+              <option key={value} value={value}>
+                {text}
+              </option>
+            ))}
+          </select>
+          <input
+            value={rawValue}
+            onChange={(e) => setRawValue(e.target.value)}
+            placeholder="Note (optional)"
+            aria-label={`Note for ${label}`}
+            className="h-10 min-w-0 flex-1 rounded-2xl border-2 border-canvas-200 bg-white px-3 text-[0.9rem] font-medium text-ink-900 outline-none focus:border-sky-500"
+          />
+        </div>
+        {error && (
+          <p className="text-[0.82rem] font-semibold text-berry-600">{error}</p>
+        )}
+        <div className="flex gap-2">
+          <Button size="sm" loading={save.isPending} onClick={() => save.mutate()}>
+            Save
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setEditing(false)}
+          >
+            Cancel
+          </Button>
+          {entry && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              loading={clear.isPending}
+              onClick={() => clear.mutate()}
+            >
+              Clear
+            </Button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setStatus(entry?.status ?? 'done')
+        setRawValue(entry?.raw_value ?? '')
+        setError('')
+        setEditing(true)
+      }}
+      className="flex w-full items-center justify-between gap-3 border-b border-canvas-200 py-2.5 text-left transition-colors last:border-0 hover:bg-canvas-50"
+    >
+      <span className="text-[0.9rem] font-semibold text-ink-700">{label}</span>
+      <span className="flex shrink-0 items-center gap-2">
+        {entry ? (
+          <>
+            <Pill status={COMPLIANCE_STATUS_TONE[entry.status] ?? 'neutral'}>
+              {COMPLIANCE_STATUS_LABEL[entry.status] ?? entry.status}
+            </Pill>
+            {entry.raw_value && (
+              <span className="max-w-40 truncate text-[0.82rem] font-medium text-ink-400">
+                {entry.raw_value}
+              </span>
+            )}
+          </>
+        ) : (
+          <span className="text-[0.82rem] font-medium text-ink-400">
+            Not recorded
+          </span>
+        )}
+        <Pencil className="size-3.5 shrink-0 text-ink-300" strokeWidth={2.4} />
+      </span>
+    </button>
+  )
+}
+
 type Attendance = {
   attendance_date: string
   on_bus: boolean
@@ -1728,17 +1912,19 @@ export function AdminChildProfile() {
           )}
         </Section>
 
-        {c.compliance.length > 0 && (
-          <Section title="Paperwork">
-            <div className="flex flex-col">
-              {c.compliance.map((p) => (
-                <Row key={p.item} label={p.item.replace(/_/g, ' ')}>
-                  {p.raw_value || p.status}
-                </Row>
-              ))}
-            </div>
-          </Section>
-        )}
+        <Section title="Paperwork">
+          <div className="flex flex-col">
+            {COMPLIANCE_ITEMS.map(({ key: itemKey, label }) => (
+              <ComplianceRow
+                key={itemKey}
+                childId={c.id}
+                itemKey={itemKey}
+                label={label}
+                entry={c.compliance.find((p) => p.item === itemKey)}
+              />
+            ))}
+          </div>
+        </Section>
 
         {hasModule('secure_pickup') && <ApprovedPickups childId={c.id} />}
       </div>

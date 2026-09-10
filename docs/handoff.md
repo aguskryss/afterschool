@@ -6,6 +6,56 @@ anteriores quedan abajo, no se borran.
 
 ---
 
+## Sesión del 2026-09-10 (7) — editar el "Paperwork" del perfil de un chico a mano
+
+La directora pidió "editar la sección de documentación sin subir todos los
+archivos" — tras preguntar, resultó ser la sección **"Paperwork"** del
+perfil de un chico (`web/src/routes/admin/Children.tsx`): hoy es de solo
+lectura, alimentada exclusivamente por `roster_staging.py` en el commit de
+un import. Una corrección puntual (una cuota que llegó después de subir la
+planilla) no tenía otro camino que resubir el Excel entero.
+
+### Lo que se agregó
+
+- `child_compliance` (server/database.py) ya tenía todo lo necesario —
+  `item`/`status`/`raw_value`/`recorded_on`, UNIQUE(child_id, item) — solo
+  le faltaba un endpoint de escritura fuera del importer.
+- `PUT /api/admin/children/<id>/compliance` (server/app.py): el mismo
+  upsert que `_apply_compliance()` ya hace en `roster_staging.py` al
+  importar, ahora alcanzable desde el perfil. Corregir a mano y volver a
+  importar después caen en la misma fila (`ON CONFLICT (child_id, item)`),
+  nunca en dos.
+- `DELETE /api/admin/children/<id>/compliance/<item>`: vuelve a "no
+  registrado" — un estado real (una celda vacía en la planilla tampoco
+  escribe fila), no solo los seis status del CHECK.
+- `COMPLIANCE_ITEMS`/`COMPLIANCE_STATUSES` en app.py espejan el CHECK
+  constraint de la tabla (mismo patrón que `CHILD_STATUSES` ya usa para
+  `attendance_records`), así un valor inválido da 400 antes de llegar a
+  Postgres.
+- El frontend (`Children.tsx`, `ComplianceRow`) ahora muestra **los 11
+  ítems del checklist siempre**, tenga o no fila el chico — antes la
+  sección entera desaparecía si `compliance` venía vacío, que es
+  exactamente el caso de un chico cargado a mano. Tocar un ítem abre
+  status (dropdown) + nota (texto libre) + Guardar/Cancelar/Borrar, mismo
+  patrón que `SecondGuardianControls` ya usa en este mismo archivo.
+
+Sin migración — la tabla y sus CHECKs ya existían tal cual. Sin módulo
+nuevo — `/api/admin/children/*` es core, como el resto de esa familia de
+rutas.
+
+### Verificado
+
+`npx tsc -b`, `npm run build` y `test_module_access.py` limpios. Confirmado
+contra la base real de JCCNS (solo lecturas): 1228 filas de
+`child_compliance`, los 11 items y 5 de los 6 status en uso — cero valores
+fuera de lo que quedó hardcodeado en `COMPLIANCE_ITEMS`/`COMPLIANCE_STATUSES`.
+No probé el PUT/DELETE en vivo (escriben sobre datos reales de chicos, no
+iba a mutarlos sin que lo pidan) — falta que la directora entre a un
+perfil, toque un ítem de Paperwork, y confirme que guarda y que "Clear" lo
+vuelve a "Not recorded".
+
+---
+
 ## Sesión del 2026-09-10 (6) — el admin entra a la lista real de cada escuela
 
 La directora pidió, desde "Live board" (lo que ella llama "embarque en
