@@ -10072,6 +10072,10 @@ def admin_reply_staff_conversation(counselor_id):
 
 MAX_PHOTO_BYTES = 8 * 1024 * 1024
 
+# A generous cap, not a policy: one event's worth of photos in a single
+# upload, not a whole year's backlog migrated in one request.
+MAX_PHOTOS_PER_UPLOAD = 30
+
 # How many photos any one gallery request returns.
 #
 # Bounded because "all photos" is now a view someone can open: a JCC a year in
@@ -10093,6 +10097,10 @@ def _photo_payload(row, url_seconds=3600, url=_UNSET):
         'photo_date': row['photo_date'],
         'caption': row['caption'],
         'created_at': row['created_at'],
+        # Every photo in the same bulk upload shares this — the root photo's
+        # own id (sql/65). Never NULL for a row this function can reach,
+        # since init_db()'s backfill and the upload path both guarantee it.
+        'album_id': row['album_id'],
         'url': (photo_storage.signed_url(row['storage_path'], url_seconds)
                 if url is _UNSET else url),
     }
@@ -10101,6 +10109,19 @@ def _photo_payload(row, url_seconds=3600, url=_UNSET):
 @app.route('/api/counselor/photos', methods=['POST'])
 @jwt_required()
 def counselor_upload_photo():
+    """Upload one photo, or several as one batch — sql/65's album.
+
+    Every file in the request shares one tagging pass, one caption and one
+    date: that is what a bulk upload actually is, the same event shot several
+    times, not several unrelated photos that happen to arrive together. The
+    first photo inserted becomes the batch's album root and every other photo
+    — itself included — points `album_id` at it, so a reader can `GROUP BY
+    album_id` with no NULL case to special-case.
+
+    One notification per family per batch, not per photo: ten photos tagging
+    the same three kids would otherwise page those families ten times for one
+    afternoon.
+    """
     claims = get_jwt()
     if claims.get('role') not in ('counselor', 'admin'):
         return jsonify({'error': 'Unauthorized'}), 403
@@ -10108,11 +10129,13 @@ def counselor_upload_photo():
         return jsonify({'error': 'Photo storage is not configured yet.'}), 503
 
     user_id = get_jwt_identity()
-    if 'file' not in request.files:
+    files = [f for f in request.files.getlist('file') if f and f.filename]
+    if not files:
         return jsonify({'error': 'No file uploaded'}), 400
-    file = request.files['file']
-    if not file.filename:
-        return jsonify({'error': 'No file uploaded'}), 400
+    if len(files) > MAX_PHOTOS_PER_UPLOAD:
+        return jsonify({
+            'error': f'Upload at most {MAX_PHOTOS_PER_UPLOAD} photos at once.'
+        }), 400
 
     # getlist: the form sends one child_ids entry per tagged child.
     try:
@@ -10134,19 +10157,24 @@ def counselor_upload_photo():
     except ValueError:
         return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD.'}), 400
 
-    data = file.read()
-    if not data:
-        return jsonify({'error': 'That file is empty'}), 400
-    if len(data) > MAX_PHOTO_BYTES:
-        return jsonify({
-            'error': 'That photo is too large. Please pick one under 8 MB.'
-        }), 413
+    # Read and size-check every file before anything touches storage or the
+    # database, so a batch of ten does not upload nine and fail on the tenth.
+    payloads = []
+    for file in files:
+        data = file.read()
+        if not data:
+            return jsonify({'error': f'{file.filename} is empty'}), 400
+        if len(data) > MAX_PHOTO_BYTES:
+            return jsonify({
+                'error': f'{file.filename} is too large. Please pick photos under 8 MB.'
+            }), 413
+        payloads.append((file.filename, data))
 
-    # A transaction, not autocommit: the photo row and its tags have to land
-    # together. Committing the photo and then failing on a tag would leave an
-    # image nobody is tagged in, which no parent can see and no counselor can
-    # find — visible only as storage cost.
+    # A transaction, not autocommit: every photo row and its tags have to land
+    # together. Committing some of the batch and failing on the rest would
+    # leave photos nobody is fully notified about, tagged half-consistently.
     db = get_db_transaction()
+    uploaded_paths: list[str] = []
     try:
         # Every tagged child must be in a school this counselor covers. Without
         # this a counselor could tag any child in the JCC and push the photo
@@ -10168,58 +10196,71 @@ def counselor_upload_photo():
             return jsonify({'error': 'One of those children is not on your roster'}), 403
 
         org_id = current_org_id()
-        try:
-            path = photo_storage.build_path(org_id, photo_date, file.filename)
-            photo_storage.upload(path, data, file.filename)
-        except photo_storage.StorageError as e:
-            db.rollback()
-            return jsonify({'error': str(e)}), 400
+        photos = []
+        album_id = None
+        for filename, data in payloads:
+            path = photo_storage.build_path(org_id, photo_date, filename)
+            photo_storage.upload(path, data, filename)
+            uploaded_paths.append(path)
 
-        try:
-            photo = db.execute("""
-                INSERT INTO photos (storage_path, uploaded_by, photo_date, caption)
-                VALUES (%s, %s, %s, %s)
-                RETURNING id, storage_path, photo_date, caption, created_at
-            """, (path, user_id, photo_date, caption)).fetchone()
+            row = db.execute("""
+                INSERT INTO photos (storage_path, uploaded_by, photo_date,
+                                     caption, album_id)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id, storage_path, photo_date, caption, created_at, album_id
+            """, (path, user_id, photo_date, caption, album_id)).fetchone()
+            if album_id is None:
+                # The first photo in the batch is its own album's root — same
+                # backfill init_db() runs for every photo that predates sql/65.
+                row = db.execute("""
+                    UPDATE photos SET album_id = id WHERE id = %s
+                    RETURNING id, storage_path, photo_date, caption, created_at, album_id
+                """, (row['id'],)).fetchone()
+                album_id = row['album_id']
             for cid in allowed_ids:
                 db.execute(
                     "INSERT INTO photo_tags (photo_id, child_id) VALUES (%s, %s) "
                     "ON CONFLICT DO NOTHING",
-                    (photo['id'], cid),
+                    (row['id'], cid),
                 )
-            # Read the families to notify before committing, so the whole
-            # handler is one transaction and the connection goes back to the
-            # pool clean rather than mid-snapshot. Both linked accounts for
-            # each tagged child, not just Contact #1.
-            owner_ids = child_owner_ids(db, allowed_ids)
-            db.commit()
-        except Exception:
-            # The bytes are already in the bucket and the rows just rolled
-            # back. Without this the object would linger with nothing pointing
-            # at it and no way to find it again.
-            db.rollback()
-            photo_storage.delete(path)
-            raise
+            photos.append(row)
+
+        # Read the families to notify before committing, so the whole handler
+        # is one transaction and the connection goes back to the pool clean
+        # rather than mid-snapshot. Both linked accounts for each tagged
+        # child, not just Contact #1.
+        owner_ids = child_owner_ids(db, allowed_ids)
+        db.commit()
     except photo_storage.StorageError as e:
+        # Whatever of the batch already reached the bucket rolls back with the
+        # transaction; without deleting it too, those objects would linger
+        # with nothing pointing at them and no way to find them again.
         db.rollback()
+        for path in uploaded_paths:
+            photo_storage.delete(path)
         print(f"[ERROR] counselor_upload_photo storage: {e}")
-        return jsonify({'error': 'Could not store that photo'}), 502
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
         db.rollback()
+        for path in uploaded_paths:
+            photo_storage.delete(path)
         print(f"[ERROR] counselor_upload_photo: {e}")
         return jsonify({'error': 'Could not save that photo'}), 500
     finally:
         db.close()
 
+    single = len(photos) == 1
     body = (
-        'A new photo was shared today.' if broadcast
-        else 'A new photo of your child was shared today.'
+        ('A new photo was shared today.' if single else
+         'New photos were shared today.') if broadcast
+        else ('A new photo of your child was shared today.' if single else
+              'New photos of your child were shared today.')
     )
     for owner_id in owner_ids:
         notify_parent(
             owner_id, 'new_photos', '📸 New photos', body, '/app/photos',
         )
-    return jsonify(_photo_payload(photo)), 201
+    return jsonify([_photo_payload(p) for p in photos]), 201
 
 
 @app.route('/api/counselor/photos', methods=['GET'])
@@ -10264,7 +10305,7 @@ def counselor_list_photos():
     try:
         rows = db.execute(f"""
             SELECT p.id, p.storage_path, p.photo_date, p.caption, p.created_at,
-                   u.name AS uploaded_by_name
+                   p.album_id, u.name AS uploaded_by_name
               FROM photos p
               LEFT JOIN users u ON u.id = p.uploaded_by
               {clause}
@@ -10344,7 +10385,7 @@ def parent_list_photos():
     try:
         rows = db.execute(f"""
             SELECT DISTINCT p.id, p.storage_path, p.photo_date, p.caption,
-                            p.created_at
+                            p.created_at, p.album_id
               FROM photos p
               JOIN photo_tags t ON t.photo_id = p.id
               JOIN children c ON c.id = t.child_id

@@ -856,6 +856,17 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_photo_tags_child ON photo_tags(child_id)"
     )
 
+    # A bulk upload's photos share one album (sql/65): the first photo's own
+    # id, which every photo in the same batch — including itself — points at.
+    # Never NULL once backfilled, so a reader groups by album_id with no
+    # third case for "not in an album."
+    cur.execute("ALTER TABLE photos ADD COLUMN IF NOT EXISTS album_id INTEGER "
+                "REFERENCES photos(id) ON DELETE SET NULL")
+    cur.execute("UPDATE photos SET album_id = id WHERE album_id IS NULL")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_photos_album ON photos(album_id)"
+    )
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS activity_roster (
             id SERIAL PRIMARY KEY,

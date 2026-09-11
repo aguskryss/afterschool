@@ -14,6 +14,8 @@ type Photo = {
   caption: string | null
   url: string | null
   children: string[]
+  /** Every photo uploaded in the same batch shares this (sql/65). */
+  album_id: number
 }
 
 function isoToday(): string {
@@ -32,7 +34,7 @@ export function CounselorPhotos() {
   const qc = useQueryClient()
   const date = isoToday()
   const fileRef = useRef<HTMLInputElement>(null)
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [tagged, setTagged] = useState<number[]>([])
   const [caption, setCaption] = useState('')
   const [error, setError] = useState('')
@@ -59,7 +61,7 @@ export function CounselorPhotos() {
   const children = (roster ?? []).flatMap((s) => s.attending)
 
   const reset = () => {
-    setFile(null)
+    setFiles([])
     setTagged([])
     setCaption('')
     setError('')
@@ -68,9 +70,13 @@ export function CounselorPhotos() {
 
   const upload = useMutation({
     mutationFn: async () => {
-      if (!file) return
+      if (files.length === 0) return
       const form = new FormData()
-      form.append('file', await downscale(file))
+      // One 'file' field per photo — the server reads the whole list as one
+      // batch, tags them all the same way, and groups them into one album
+      // (sql/65) instead of sending a separate notification for each.
+      const downscaled = await Promise.all(files.map(downscale))
+      for (const f of downscaled) form.append('file', f)
       form.append('date', date)
       if (caption.trim()) form.append('caption', caption.trim())
       tagged.forEach((id) => form.append('child_ids', String(id)))
@@ -82,7 +88,7 @@ export function CounselorPhotos() {
     },
     onError: (err) =>
       setError(
-        err instanceof ApiError ? err.message : 'Could not upload that photo.',
+        err instanceof ApiError ? err.message : 'Could not upload those photos.',
       ),
   })
 
@@ -102,34 +108,41 @@ export function CounselorPhotos() {
       <Card className="mb-5 p-4">
         {/* The native input's own button/label text comes from the browser's
             locale, not this app's — a Spanish OS shows "Seleccionar
-            archivo" no matter what language the rest of the screen is in.
-            Hiding it and driving everything from `file` state keeps the
-            wording ours on any device. */}
+            archivos" no matter what language the rest of the screen is in.
+            Hiding it and driving everything from `files` state keeps the
+            wording ours on any device. No `capture` here any more: a bulk
+            upload means picking several already-taken photos out of the
+            gallery, and pinning the input straight to the camera stopped a
+            phone offering that picker on some browsers. */}
         <div className="mb-3 flex items-center gap-3">
           <label className="inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-grape-500 px-4 py-2 text-[0.88rem] font-bold text-white active:bg-grape-600">
             <input
               ref={fileRef}
               type="file"
               accept="image/*"
-              capture="environment"
-              aria-label="Choose a photo"
+              multiple
+              aria-label="Choose photos"
               onChange={(e) => {
-                setFile(e.target.files?.[0] ?? null)
+                setFiles(Array.from(e.target.files ?? []))
                 setError('')
               }}
               className="hidden"
             />
-            Choose photo
+            Choose photos
           </label>
           <span className="min-w-0 flex-1 truncate text-[0.88rem] font-semibold text-ink-600">
-            {file ? file.name : 'No file chosen'}
+            {files.length === 0
+              ? 'No files chosen'
+              : files.length === 1
+                ? files[0].name
+                : `${files.length} photos selected`}
           </span>
         </div>
 
-        {file && (
+        {files.length > 0 && (
           <>
             <p className="mb-2 text-[0.8rem] font-extrabold tracking-wide text-ink-400 uppercase">
-              Who is in it?
+              {files.length === 1 ? 'Who is in it?' : 'Who is in these?'}
             </p>
             {children.length === 0 ? (
               <p className="mb-3 text-[0.85rem] font-medium text-ink-500">
@@ -183,7 +196,7 @@ export function CounselorPhotos() {
                 onClick={() => upload.mutate()}
               >
                 <ImagePlus className="size-4" strokeWidth={2.4} />
-                Post photo
+                {files.length > 1 ? `Post ${files.length} photos` : 'Post photo'}
               </Button>
               <Button variant="outline" onClick={reset}>
                 Cancel

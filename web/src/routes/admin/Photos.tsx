@@ -14,6 +14,28 @@ type Photo = {
   url: string | null
   children: string[]
   uploaded_by_name: string | null
+  /** Every photo uploaded in the same batch shares this — the root photo's
+   *  own id (sql/65). Grouping by it is what turns a bulk upload back into
+   *  the one album it was posted as, instead of N separate tiles. */
+  album_id: number
+}
+
+/** One batch, grouped by `album_id` — the server never returns it out of
+ *  `created_at` order, so photos sharing an album are already adjacent. */
+function groupByAlbum(photos: Photo[]): Photo[][] {
+  const albums: Photo[][] = []
+  const byId = new Map<number, Photo[]>()
+  for (const p of photos) {
+    const existing = byId.get(p.album_id)
+    if (existing) {
+      existing.push(p)
+    } else {
+      const group = [p]
+      byId.set(p.album_id, group)
+      albums.push(group)
+    }
+  }
+  return albums
 }
 
 function isoToday(): string {
@@ -28,7 +50,7 @@ type ParentRow = {
 }
 
 /**
- * Posting a photo as an administrator.
+ * Posting a photo — or a whole batch — as an administrator.
  *
  * The server has always allowed this — /api/counselor/photos takes 'admin' as
  * well, and gives an admin the whole roster to tag from rather than one
@@ -42,10 +64,17 @@ type ParentRow = {
  * of children on their own roster today; an admin is choosing from every child
  * in the JCC, which at the one running this is 156. A wall of 156 chips is not
  * a picker.
+ *
+ * WHY ONE TAG PASS FOR THE WHOLE BATCH. A bulk upload is one event shot
+ * several times — pick-up, a birthday circle, a field trip — and every photo
+ * in it is of the same kids by construction. Asking who is in each of twelve
+ * photos individually is the one-by-one workflow this exists to replace; the
+ * server groups everything selected here into one album (sql/65) and sends
+ * one notification per family for the whole batch, not one per photo.
  */
 function Uploader({ date, onDone }: { date: string; onDone: () => void }) {
   const fileRef = useRef<HTMLInputElement>(null)
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [tagged, setTagged] = useState<number[]>([])
   const [broadcast, setBroadcast] = useState(false)
   const [caption, setCaption] = useState('')
@@ -91,7 +120,7 @@ function Uploader({ date, onDone }: { date: string; onDone: () => void }) {
   }
 
   const reset = () => {
-    setFile(null)
+    setFiles([])
     setTagged([])
     setBroadcast(false)
     setCaption('')
@@ -102,11 +131,14 @@ function Uploader({ date, onDone }: { date: string; onDone: () => void }) {
 
   const upload = useMutation({
     mutationFn: async () => {
-      if (!file) return
+      if (files.length === 0) return
       const form = new FormData()
       // Downscaled in the browser, same as the counselor path: an 8 MB phone
       // photo is refused by the server and would be a slow upload anyway.
-      form.append('file', await downscale(file))
+      // One 'file' field per photo — the server reads the whole list as one
+      // batch and groups it into one album (sql/65).
+      const downscaled = await Promise.all(files.map(downscale))
+      for (const f of downscaled) form.append('file', f)
       form.append('date', date)
       if (caption.trim()) form.append('caption', caption.trim())
       if (broadcast) form.append('broadcast', '1')
@@ -119,43 +151,51 @@ function Uploader({ date, onDone }: { date: string; onDone: () => void }) {
     },
     onError: (err) =>
       setError(
-        err instanceof ApiError ? err.message : 'Could not upload that photo.',
+        err instanceof ApiError ? err.message : 'Could not upload those photos.',
       ),
   })
 
   return (
     <Card className="mb-5 p-4">
-      <p className="mb-3 font-extrabold text-ink-800">Post a photo</p>
+      <p className="mb-3 font-extrabold text-ink-800">Post photos</p>
 
       {/* The native input's own button/label text comes from the browser's
           locale, not this app's — a Spanish OS shows "Seleccionar
-          archivo" no matter what language the rest of the screen is in.
-          Hiding it and driving everything from `file` state keeps the
-          wording ours on any device. */}
+          archivos" no matter what language the rest of the screen is in.
+          Hiding it and driving everything from `files` state keeps the
+          wording ours on any device. `multiple`: picking several at once is
+          the whole point — a school event is a dozen shots of the same kids,
+          not one, and the server groups whatever lands in one request into
+          a single album (sql/65). */}
       <div className="mb-3 flex items-center gap-3">
         <label className="inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-grape-500 px-4 py-2 text-[0.88rem] font-bold text-white active:bg-grape-600">
           <input
             ref={fileRef}
             type="file"
             accept="image/*"
-            aria-label="Choose a photo"
+            multiple
+            aria-label="Choose photos"
             onChange={(e) => {
-              setFile(e.target.files?.[0] ?? null)
+              setFiles(Array.from(e.target.files ?? []))
               setError('')
             }}
             className="hidden"
           />
-          Choose photo
+          Choose photos
         </label>
         <span className="min-w-0 flex-1 truncate text-[0.88rem] font-semibold text-ink-600">
-          {file ? file.name : 'No file chosen'}
+          {files.length === 0
+            ? 'No files chosen'
+            : files.length === 1
+              ? files[0].name
+              : `${files.length} photos selected`}
         </span>
       </div>
 
-      {file && (
+      {files.length > 0 && (
         <>
           <p className="mb-2 text-[0.8rem] font-extrabold tracking-wide text-ink-400 uppercase">
-            Who is in it?
+            {files.length === 1 ? 'Who is in it?' : 'Who is in these?'}
           </p>
 
           <label className="mb-3 flex items-center gap-2 text-[0.88rem] font-semibold text-ink-700">
@@ -247,15 +287,16 @@ function Uploader({ date, onDone }: { date: string; onDone: () => void }) {
 
           <div className="flex gap-2">
             <Button
-              // Tagging is what decides who can see it, so an untagged photo
+              // Tagging is what decides who can see it, so untagged photos
               // would be uploaded and then visible to nobody.
               disabled={tagged.length === 0}
               loading={upload.isPending}
               onClick={() => upload.mutate()}
             >
+              {files.length > 1 ? `Post ${files.length} photos to ` : 'Post to '}
               {broadcast
-                ? `Post to all ${tagged.length} families`
-                : `Post to ${tagged.length || 'no'} ${
+                ? `all ${tagged.length} families`
+                : `${tagged.length || 'no'} ${
                     tagged.length === 1 ? 'family' : 'families'
                   }`}
             </Button>
@@ -300,6 +341,16 @@ export function AdminPhotos() {
   const remove = useMutation({
     mutationFn: (id: number) =>
       api(`/api/counselor/photos/${id}`, { method: 'DELETE' }),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: ['admin', 'photos', date] }),
+  })
+
+  // Every photo in the album, one DELETE each — there is no bulk-delete
+  // endpoint, and adding one for a rare admin action would be more surface
+  // than the parallel requests it replaces.
+  const removeAlbum = useMutation({
+    mutationFn: (ids: number[]) =>
+      Promise.all(ids.map((id) => api(`/api/counselor/photos/${id}`, { method: 'DELETE' }))),
     onSuccess: () =>
       void qc.invalidateQueries({ queryKey: ['admin', 'photos', date] }),
   })
@@ -361,59 +412,104 @@ export function AdminPhotos() {
         </Card>
       ) : (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
-          {photos.map((p) => (
-            <Card key={p.id} className="overflow-hidden">
-              {p.url ? (
-                <img
-                  src={p.url}
-                  alt={p.caption ?? `Photo of ${p.children.join(', ')}`}
-                  loading="lazy"
-                  className="aspect-square w-full object-cover"
-                />
-              ) : (
-                <span className="flex aspect-square w-full items-center justify-center bg-canvas-100 text-[0.78rem] font-semibold text-ink-400">
-                  Unavailable
-                </span>
-              )}
-              <div className="flex items-start gap-2 p-3">
-                <div className="min-w-0 flex-1">
-                  <p
-                    className="truncate text-[0.82rem] font-bold text-ink-800"
-                    title={p.children.join(', ')}
-                  >
-                    {/* A broadcast tags every active child, which reads as a
-                        wall of names rather than useful information — the
-                        count says what matters here. */}
-                    {p.children.length > 6
-                      ? `${p.children.length} children · everyone`
-                      : p.children.join(', ') || 'Nobody tagged'}
-                  </p>
-                  <p className="truncate text-[0.76rem] font-medium text-ink-400">
-                    {/* The day is on the card only when the grid spans days —
-                        with a date filter on it is already at the top and
-                        repeating it on every tile is noise. */}
-                    {showingAll && `${p.photo_date} · `}
-                    by {p.uploaded_by_name ?? 'a removed account'}
-                  </p>
-                  {p.caption && (
-                    <p className="truncate text-[0.76rem] font-medium text-ink-500">
-                      {p.caption}
+          {groupByAlbum(photos).map((album) => {
+            const cover = album[0]
+            const extra = album.length - 4
+            return (
+              <Card key={cover.album_id} className="overflow-hidden">
+                {album.length === 1 ? (
+                  cover.url ? (
+                    <img
+                      src={cover.url}
+                      alt={cover.caption ?? `Photo of ${cover.children.join(', ')}`}
+                      loading="lazy"
+                      className="aspect-square w-full object-cover"
+                    />
+                  ) : (
+                    <span className="flex aspect-square w-full items-center justify-center bg-canvas-100 text-[0.78rem] font-semibold text-ink-400">
+                      Unavailable
+                    </span>
+                  )
+                ) : (
+                  // A 2x2 preview, not all N photos at full size — the point
+                  // of an album card is to read as one post in the grid, the
+                  // same way it reads as one notification to a parent.
+                  <div className="grid aspect-square grid-cols-2 gap-0.5 bg-canvas-200">
+                    {album.slice(0, 4).map((p, i) => (
+                      <div key={p.id} className="relative overflow-hidden">
+                        {p.url ? (
+                          <img
+                            src={p.url}
+                            alt=""
+                            loading="lazy"
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <span className="flex h-full w-full items-center justify-center bg-canvas-100 text-[0.7rem] font-semibold text-ink-400">
+                            Unavailable
+                          </span>
+                        )}
+                        {i === 3 && extra > 0 && (
+                          <span className="absolute inset-0 flex items-center justify-center bg-ink-900/60 text-[1.05rem] font-extrabold text-white">
+                            +{extra}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-start gap-2 p-3">
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className="truncate text-[0.82rem] font-bold text-ink-800"
+                      title={cover.children.join(', ')}
+                    >
+                      {/* A broadcast tags every active child, which reads as a
+                          wall of names rather than useful information — the
+                          count says what matters here. */}
+                      {album.length > 1 && `${album.length} photos · `}
+                      {cover.children.length > 6
+                        ? `${cover.children.length} children · everyone`
+                        : cover.children.join(', ') || 'Nobody tagged'}
                     </p>
-                  )}
+                    <p className="truncate text-[0.76rem] font-medium text-ink-400">
+                      {/* The day is on the card only when the grid spans days —
+                          with a date filter on it is already at the top and
+                          repeating it on every tile is noise. */}
+                      {showingAll && `${cover.photo_date} · `}
+                      by {cover.uploaded_by_name ?? 'a removed account'}
+                    </p>
+                    {cover.caption && (
+                      <p className="truncate text-[0.76rem] font-medium text-ink-500">
+                        {cover.caption}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={
+                      album.length === 1
+                        ? 'Delete photo'
+                        : `Delete all ${album.length} photos in this album`
+                    }
+                    onClick={async () => {
+                      const ids = album.map((p) => p.id)
+                      if (album.length === 1) {
+                        if (await confirmDelete('this photo')) remove.mutate(ids[0])
+                      } else if (
+                        await confirmDelete(`these ${album.length} photos`)
+                      ) {
+                        removeAlbum.mutate(ids)
+                      }
+                    }}
+                    className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-300 transition-colors hover:bg-berry-50 hover:text-berry-500"
+                  >
+                    <Trash2 className="size-4" strokeWidth={2.1} />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  aria-label="Delete photo"
-                  onClick={async () => {
-                    if (await confirmDelete('this photo')) remove.mutate(p.id)
-                  }}
-                  className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-300 transition-colors hover:bg-berry-50 hover:text-berry-500"
-                >
-                  <Trash2 className="size-4" strokeWidth={2.1} />
-                </button>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            )
+          })}
         </div>
       )}
 

@@ -6,6 +6,74 @@ anteriores quedan abajo, no se borran.
 
 ---
 
+## Sesión del 2026-09-11 — subir fotos en batch, y álbumes
+
+La directora preguntó si se puede subir fotos en batch en vez de una por
+una, y — dudando si era pedir demasiado — si se podían armar álbumes. Las
+dos resultaron ser la misma pregunta: agrupar varias fotos de un mismo
+evento en un solo posteo.
+
+### `photos.album_id` — sql/65
+
+Cada foto ahora pertenece a exactamente un álbum, sin excepción — incluso
+una foto subida sola es un álbum de una. La raíz es la primera foto de un
+batch; el resto (y ella misma) apuntan `album_id` a esa raíz. Nada de NULL
+como "sin álbum": todo lector agrupa con `GROUP BY album_id` sin un tercer
+caso. `ON DELETE SET NULL`: borrar justo la foto raíz deja al resto del
+álbum huérfano (`album_id = NULL`), y se acepta — degradan a fotos sueltas,
+nada se pierde salvo el agrupamiento. Backfill en `init_db()` para las 14
+fotos que ya existían en JCCNS.
+
+No hay tabla `photo_albums` separada — un álbum no tiene ningún dato propio
+que la primera foto no tenga ya (caption, fecha, quién subió), porque las
+fotos de un mismo batch comparten los tres por construcción (el form
+pregunta una vez, aplica a todos los archivos elegidos).
+
+### El endpoint — un batch, un tag, una notificación
+
+`POST /api/counselor/photos` (server/app.py) ahora lee `request.files.getlist('file')`
+en vez de un solo archivo — hasta `MAX_PHOTOS_PER_UPLOAD = 30` por request.
+Un solo pase de tagging/caption/fecha para todo el batch (es una foto de
+los mismos chicos tomada varias veces, no fotos sueltas que coinciden en
+llegar juntas). Válida y lee TODOS los archivos antes de tocar el storage,
+para que un batch de diez no suba nueve y falle en el décimo. Si algo
+falla a mitad de camino, se borra del storage lo que ya se había subido en
+ese batch, no solo el último archivo.
+
+**Una notificación por familia por batch, no por foto** — diez fotos
+etiquetando a los mismos tres chicos antes habrían mandado diez pushes por
+esta misma tarde. `child_owner_ids` se lee una sola vez después del loop.
+
+### El frontend
+
+- `web/src/routes/admin/Photos.tsx` y `web/src/routes/counselor/Photos.tsx`:
+  el input pasa a `multiple`, un solo picker de "quién está" para todo el
+  batch elegido. El del counselor pierde el `capture="environment"` — con
+  `multiple` puesto, fijar el input a la cámara le sacaba a algunos
+  navegadores el picker de galería que un batch necesita.
+- Admin: el grid ahora agrupa por `album_id` — un álbum de más de una foto
+  se ve como una sola Card con preview 2x2 y "+N" si hay más de 4, en vez
+  de N cards sueltas inundando la grilla. Borrar un álbum borra las N fotos
+  (N deletes en paralelo — no hay endpoint de borrado masivo, y agregar uno
+  para esto es más superficie que las requests paralelas que reemplaza).
+- La galería del padre (`ParentPhotos.tsx`) **no se tocó** — ya agrupa por
+  día en una grilla, que para un batch subido en una sola fecha ya lee
+  como "las fotos de hoy" sin cambios. `album_id` viaja en su payload por
+  si en el futuro hace falta un lightbox que pagine dentro de un álbum,
+  pero no construí esa UI ahora — es la parte que ella misma dudó si pedir.
+
+### Verificado
+
+`npx tsc -b`, `npm run build` y `test_module_access.py` limpios. Confirmado
+contra la base real de JCCNS (solo lecturas): 14 fotos, 258 tags — el
+backfill de `album_id` es trivial contra ese volumen. No probé el POST
+multi-archivo en vivo (escribe fotos y dispara pushes reales) — falta que
+alguien suba un batch real desde Admin → Photos o Counselor → Photos y
+confirme que aparece agrupado y que las familias tagueadas reciben **una**
+notificación, no varias.
+
+---
+
 ## Sesión del 2026-09-10 (7) — editar el "Paperwork" del perfil de un chico a mano
 
 La directora pidió "editar la sección de documentación sin subir todos los
