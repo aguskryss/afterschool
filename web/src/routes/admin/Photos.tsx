@@ -14,28 +14,42 @@ type Photo = {
   url: string | null
   children: string[]
   uploaded_by_name: string | null
-  /** Every photo uploaded in the same batch shares this — the root photo's
-   *  own id (sql/65). Grouping by it is what turns a bulk upload back into
-   *  the one album it was posted as, instead of N separate tiles. */
+  /** Every photo in the same bulk upload shares this — the root photo's own
+   *  id (sql/65). Used for the one-notification-per-batch dedup server-side;
+   *  on its own it says nothing about whether this should display grouped. */
   album_id: number
+  /** Set only when the uploader named this batch (sql/67) — that is what
+   *  makes it a real, browsable album instead of a batch that merely
+   *  happened to upload together. */
+  album_name: string | null
 }
 
-/** One batch, grouped by `album_id` — the server never returns it out of
- *  `created_at` order, so photos sharing an album are already adjacent. */
-function groupByAlbum(photos: Photo[]): Photo[][] {
-  const albums: Photo[][] = []
-  const byId = new Map<number, Photo[]>()
+/**
+ * Photos ready to render, one entry per card.
+ *
+ * Only a NAMED album groups — `album_id` alone (every photo has one, even a
+ * lone upload) says nothing about whether these were meant to be seen as one
+ * post. An unnamed batch renders exactly like the individual photos it
+ * looked like before bulk upload and albums existed.
+ */
+function groupForDisplay(photos: Photo[]): Photo[][] {
+  const groups: Photo[][] = []
+  const named = new Map<number, Photo[]>()
   for (const p of photos) {
-    const existing = byId.get(p.album_id)
+    if (!p.album_name) {
+      groups.push([p])
+      continue
+    }
+    const existing = named.get(p.album_id)
     if (existing) {
       existing.push(p)
     } else {
       const group = [p]
-      byId.set(p.album_id, group)
-      albums.push(group)
+      named.set(p.album_id, group)
+      groups.push(group)
     }
   }
-  return albums
+  return groups
 }
 
 function isoToday(): string {
@@ -78,6 +92,8 @@ function Uploader({ date, onDone }: { date: string; onDone: () => void }) {
   const [tagged, setTagged] = useState<number[]>([])
   const [broadcast, setBroadcast] = useState(false)
   const [caption, setCaption] = useState('')
+  const [isAlbum, setIsAlbum] = useState(false)
+  const [albumName, setAlbumName] = useState('')
   const [query, setQuery] = useState('')
   const [error, setError] = useState('')
 
@@ -124,10 +140,19 @@ function Uploader({ date, onDone }: { date: string; onDone: () => void }) {
     setTagged([])
     setBroadcast(false)
     setCaption('')
+    setIsAlbum(false)
+    setAlbumName('')
     setQuery('')
     setError('')
     if (fileRef.current) fileRef.current.value = ''
   }
+
+  // A bulk upload is not automatically an album — most of the time it is just
+  // a faster way to post several unrelated photos, and forcing every batch
+  // into one grouped, named card would be wrong exactly as often as it was
+  // right. Naming it is what turns it into a real album (sql/67); left
+  // unchecked, the photos display as ordinary individual photos.
+  const albumReady = !isAlbum || albumName.trim().length > 0
 
   const upload = useMutation({
     mutationFn: async () => {
@@ -136,12 +161,14 @@ function Uploader({ date, onDone }: { date: string; onDone: () => void }) {
       // Downscaled in the browser, same as the counselor path: an 8 MB phone
       // photo is refused by the server and would be a slow upload anyway.
       // One 'file' field per photo — the server reads the whole list as one
-      // batch and groups it into one album (sql/65).
+      // batch and groups it into one album (sql/65) either way, for the
+      // notification; only a name makes it a browsable one (sql/67).
       const downscaled = await Promise.all(files.map(downscale))
       for (const f of downscaled) form.append('file', f)
       form.append('date', date)
       if (caption.trim()) form.append('caption', caption.trim())
       if (broadcast) form.append('broadcast', '1')
+      if (isAlbum && albumName.trim()) form.append('album_name', albumName.trim())
       tagged.forEach((id) => form.append('child_ids', String(id)))
       return api('/api/counselor/photos', { method: 'POST', body: form })
     },
@@ -191,6 +218,38 @@ function Uploader({ date, onDone }: { date: string; onDone: () => void }) {
               : `${files.length} photos selected`}
         </span>
       </div>
+
+      {files.length > 1 && (
+        <div className="mb-3 rounded-2xl border-2 border-canvas-200 p-3">
+          <label className="flex items-center gap-2 text-[0.88rem] font-semibold text-ink-700">
+            <input
+              type="checkbox"
+              checked={isAlbum}
+              onChange={(e) => {
+                setIsAlbum(e.target.checked)
+                if (!e.target.checked) setAlbumName('')
+              }}
+              className="size-4 accent-grape-500"
+            />
+            This is an album
+          </label>
+          {isAlbum ? (
+            <input
+              value={albumName}
+              onChange={(e) => setAlbumName(e.target.value)}
+              placeholder={'Album name, e.g. "Field trip to the zoo"'}
+              aria-label="Album name"
+              autoFocus
+              className="mt-2 w-full rounded-2xl border-2 border-canvas-200 px-4 py-2 text-[0.88rem] font-medium outline-none focus:border-grape-500"
+            />
+          ) : (
+            <p className="mt-1.5 text-[0.8rem] font-medium text-ink-400">
+              Left unchecked, these post as {files.length} separate photos —
+              not grouped, no shared name.
+            </p>
+          )}
+        </div>
+      )}
 
       {files.length > 0 && (
         <>
@@ -288,8 +347,10 @@ function Uploader({ date, onDone }: { date: string; onDone: () => void }) {
           <div className="flex gap-2">
             <Button
               // Tagging is what decides who can see it, so untagged photos
-              // would be uploaded and then visible to nobody.
-              disabled={tagged.length === 0}
+              // would be uploaded and then visible to nobody. A checked "This
+              // is an album" with no name yet is not ready either — an
+              // unnamed album is a contradiction, not a valid state to post.
+              disabled={tagged.length === 0 || !albumReady}
               loading={upload.isPending}
               onClick={() => upload.mutate()}
             >
@@ -412,11 +473,11 @@ export function AdminPhotos() {
         </Card>
       ) : (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
-          {groupByAlbum(photos).map((album) => {
+          {groupForDisplay(photos).map((album) => {
             const cover = album[0]
             const extra = album.length - 4
             return (
-              <Card key={cover.album_id} className="overflow-hidden">
+              <Card key={cover.id} className="overflow-hidden">
                 {album.length === 1 ? (
                   cover.url ? (
                     <img
@@ -460,6 +521,14 @@ export function AdminPhotos() {
                 )}
                 <div className="flex items-start gap-2 p-3">
                   <div className="min-w-0 flex-1">
+                    {/* The name is the whole reason this is one card instead
+                        of several — it leads, same as a photo's caption does
+                        for a single post. */}
+                    {cover.album_name && (
+                      <p className="truncate text-[0.9rem] font-extrabold text-grape-600">
+                        {cover.album_name}
+                      </p>
+                    )}
                     <p
                       className="truncate text-[0.82rem] font-bold text-ink-800"
                       title={cover.children.join(', ')}

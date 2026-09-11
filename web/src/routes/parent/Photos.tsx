@@ -10,6 +10,37 @@ type Photo = {
   caption: string | null
   url: string | null
   children: string[]
+  /** Every photo in the same bulk upload shares this (sql/65) — on its own
+   *  it says nothing about whether these were meant to be seen as one set. */
+  album_id: number
+  /** Set only when the person who posted these named the batch (sql/67).
+   *  That is what makes it a real album worth its own section here, instead
+   *  of just more tiles in the day's grid. */
+  album_name: string | null
+}
+
+/** One day's photos, split into named albums (grouped, in upload order) and
+ *  everything else (loose, in the day's normal order). `album_id` alone
+ *  groups nothing — every photo has one, even a photo posted by itself. */
+function splitAlbums(dayPhotos: Photo[]): { albums: Photo[][]; loose: Photo[] } {
+  const albums: Photo[][] = []
+  const byAlbum = new Map<number, Photo[]>()
+  const loose: Photo[] = []
+  for (const p of dayPhotos) {
+    if (!p.album_name) {
+      loose.push(p)
+      continue
+    }
+    const existing = byAlbum.get(p.album_id)
+    if (existing) {
+      existing.push(p)
+    } else {
+      const group = [p]
+      byAlbum.set(p.album_id, group)
+      albums.push(group)
+    }
+  }
+  return { albums, loose }
 }
 
 function dayLabel(iso: string): string {
@@ -28,6 +59,37 @@ function dayLabel(iso: string): string {
     month: 'short',
     day: 'numeric',
   })
+}
+
+/** One tile in the grid — a named album's and the day's loose grid both use
+ *  the same one, so the two never drift apart in how a photo reads. */
+function PhotoTile({
+  photo,
+  onOpen,
+}: {
+  photo: Photo
+  onOpen: (p: Photo) => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(photo)}
+      className="overflow-hidden rounded-2xl bg-canvas-100 transition-transform active:scale-[0.98]"
+    >
+      {photo.url ? (
+        <img
+          src={photo.url}
+          alt={photo.caption ?? `Photo of ${photo.children.join(', ')}`}
+          loading="lazy"
+          className="aspect-square w-full object-cover"
+        />
+      ) : (
+        <span className="flex aspect-square w-full items-center justify-center text-[0.78rem] font-semibold text-ink-400">
+          Unavailable
+        </span>
+      )}
+    </button>
+  )
 }
 
 /**
@@ -68,36 +130,40 @@ export function ParentPhotos() {
           />
         </Card>
       ) : (
-        days.map((day) => (
-          <section key={day} className="mb-6">
-            <h2 className="mb-2 text-[0.8rem] font-extrabold tracking-wide text-ink-400 uppercase">
-              {dayLabel(day)}
-            </h2>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {byDay[day].map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => setOpen(p)}
-                  className="overflow-hidden rounded-2xl bg-canvas-100 transition-transform active:scale-[0.98]"
-                >
-                  {p.url ? (
-                    <img
-                      src={p.url}
-                      alt={p.caption ?? `Photo of ${p.children.join(', ')}`}
-                      loading="lazy"
-                      className="aspect-square w-full object-cover"
-                    />
-                  ) : (
-                    <span className="flex aspect-square w-full items-center justify-center text-[0.78rem] font-semibold text-ink-400">
-                      Unavailable
-                    </span>
-                  )}
-                </button>
+        days.map((day) => {
+          const { albums, loose } = splitAlbums(byDay[day])
+          return (
+            <section key={day} className="mb-6">
+              <h2 className="mb-2 text-[0.8rem] font-extrabold tracking-wide text-ink-400 uppercase">
+                {dayLabel(day)}
+              </h2>
+
+              {/* A named album gets its own header and its own grid — it is
+                  a set someone put together on purpose, not just more tiles
+                  for the day. */}
+              {albums.map((album) => (
+                <div key={album[0].id} className="mb-4">
+                  <h3 className="mb-1.5 text-[0.92rem] font-extrabold text-ink-800">
+                    {album[0].album_name}
+                  </h3>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {album.map((p) => (
+                      <PhotoTile key={p.id} photo={p} onOpen={setOpen} />
+                    ))}
+                  </div>
+                </div>
               ))}
-            </div>
-          </section>
-        ))
+
+              {loose.length > 0 && (
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {loose.map((p) => (
+                    <PhotoTile key={p.id} photo={p} onOpen={setOpen} />
+                  ))}
+                </div>
+              )}
+            </section>
+          )
+        })
       )}
 
       {open && (
@@ -125,6 +191,11 @@ export function ParentPhotos() {
               />
             )}
             <figcaption className="mt-3 text-center text-[0.88rem] font-semibold text-white">
+              {open.album_name && (
+                <span className="mb-0.5 block text-[0.95rem] font-extrabold">
+                  {open.album_name}
+                </span>
+              )}
               {open.children.join(', ')}
               {open.caption && (
                 <span className="block font-medium text-white/70">

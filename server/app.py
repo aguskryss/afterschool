@@ -10101,6 +10101,9 @@ def _photo_payload(row, url_seconds=3600, url=_UNSET):
         # own id (sql/65). Never NULL for a row this function can reach,
         # since init_db()'s backfill and the upload path both guarantee it.
         'album_id': row['album_id'],
+        # NULL means "just a batch that uploaded together" — display as
+        # ordinary individual photos. Set means a real, named album (sql/67).
+        'album_name': row['album_name'],
         'url': (photo_storage.signed_url(row['storage_path'], url_seconds)
                 if url is _UNSET else url),
     }
@@ -10151,6 +10154,10 @@ def counselor_upload_photo():
     broadcast = request.form.get('broadcast') == '1'
 
     caption = (request.form.get('caption') or '').strip() or None
+    # NULL unless the uploader deliberately named this batch (sql/67) — a
+    # blank name is not a nameless album, it is not an album at all, same as
+    # an unchecked checkbox on the client.
+    album_name = (request.form.get('album_name') or '').strip() or None
     photo_date = request.form.get('date') or today_for_org()
     try:
         photo_date = parse_date(photo_date)
@@ -10205,16 +10212,18 @@ def counselor_upload_photo():
 
             row = db.execute("""
                 INSERT INTO photos (storage_path, uploaded_by, photo_date,
-                                     caption, album_id)
-                VALUES (%s, %s, %s, %s, %s)
-                RETURNING id, storage_path, photo_date, caption, created_at, album_id
-            """, (path, user_id, photo_date, caption, album_id)).fetchone()
+                                     caption, album_id, album_name)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id, storage_path, photo_date, caption, created_at,
+                          album_id, album_name
+            """, (path, user_id, photo_date, caption, album_id, album_name)).fetchone()
             if album_id is None:
                 # The first photo in the batch is its own album's root — same
                 # backfill init_db() runs for every photo that predates sql/65.
                 row = db.execute("""
                     UPDATE photos SET album_id = id WHERE id = %s
-                    RETURNING id, storage_path, photo_date, caption, created_at, album_id
+                    RETURNING id, storage_path, photo_date, caption, created_at,
+                              album_id, album_name
                 """, (row['id'],)).fetchone()
                 album_id = row['album_id']
             for cid in allowed_ids:
@@ -10305,7 +10314,7 @@ def counselor_list_photos():
     try:
         rows = db.execute(f"""
             SELECT p.id, p.storage_path, p.photo_date, p.caption, p.created_at,
-                   p.album_id, u.name AS uploaded_by_name
+                   p.album_id, p.album_name, u.name AS uploaded_by_name
               FROM photos p
               LEFT JOIN users u ON u.id = p.uploaded_by
               {clause}
@@ -10385,7 +10394,7 @@ def parent_list_photos():
     try:
         rows = db.execute(f"""
             SELECT DISTINCT p.id, p.storage_path, p.photo_date, p.caption,
-                            p.created_at, p.album_id
+                            p.created_at, p.album_id, p.album_name
               FROM photos p
               JOIN photo_tags t ON t.photo_id = p.id
               JOIN children c ON c.id = t.child_id

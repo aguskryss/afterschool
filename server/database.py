@@ -867,6 +867,15 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_photos_album ON photos(album_id)"
     )
 
+    # NULL means "just a batch that happened to upload together" (sql/67) —
+    # album_id above still dedupes the notification either way. Set means a
+    # real, named, browsable album. No separate is_album boolean: the column
+    # being filled in already says everything one would, without a second
+    # copy of the same fact that could disagree with it.
+    cur.execute(
+        "ALTER TABLE photos ADD COLUMN IF NOT EXISTS album_name TEXT"
+    )
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS activity_roster (
             id SERIAL PRIMARY KEY,

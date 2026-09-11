@@ -74,6 +74,66 @@ notificación, no varias.
 
 ---
 
+## Sesión del 2026-09-11 (bis) — un álbum es el que se nombra, no cualquier batch
+
+Apenas entregado el bulk upload, la directora avisó: no toda tanda de fotos
+subida junta es un álbum — a veces es solo subir rápido varias fotos sueltas
+sin relación. Pidió un check "es álbum", que si lo tildás te deje ponerle
+nombre, y que se pueda "mirar" — o sea, que los padres también lo vean como
+tal.
+
+### `photos.album_name` — sql/67
+
+`album_id` (sql/65) sigue exactamente igual: cada foto de una tanda lo
+comparte, sirve solo para que el server mande **una** notificación por
+familia por batch en vez de una por foto, y es invisible — nunca se mostró
+en ninguna pantalla. Lo que faltaba era una señal aparte de "esto es un
+álbum de verdad, con nombre, para mirar como conjunto". Esa señal es
+`album_name`: NULL en un batch sin nombrar (se muestra como fotos sueltas,
+exactamente como antes de que existiera el bulk upload), con texto en un
+álbum real.
+
+**No agregué un booleano `is_album` aparte.** Un booleano cuyo único trabajo
+es anunciar que una columna de texto está llena es una segunda copia del
+mismo dato, y las dos pueden desacordar (`is_album = true` con
+`album_name = NULL`, o al revés). `album_name IS NOT NULL` ya dice todo lo
+que `is_album` diría, sin ese riesgo — mismo criterio que ya usa
+`block_checks` para no tener una columna `status` cuyo único valor sea su
+propio nombre.
+
+### Dónde se ve
+
+- `server/app.py` (`counselor_upload_photo`): nuevo campo de form
+  `album_name`, opcional, se guarda en cada fila de la tanda si viene lleno.
+- Admin y counselor (`Photos.tsx` en ambos): el checkbox "This is an album"
+  **solo aparece con más de una foto elegida** — no tiene sentido para una
+  sola. Tildado, pide el nombre y no deja postear hasta que lo escribís
+  (`albumReady`). Destildado, el batch sube igual (con una sola
+  notificación) pero se muestra como fotos sueltas.
+- Grid del admin: ahora agrupa por álbum **solo si tiene nombre**
+  (`groupForDisplay`, ya no `groupByAlbum`) — un batch sin nombrar vuelve a
+  verse como antes del bulk upload, una card por foto. El nombre aparece
+  como título de la card agrupada.
+- **`ParentPhotos.tsx` — esto sí lo toqué esta vez** (la sesión anterior
+  dije que no hacía falta, y tenía razón para el caso sin nombrar, pero un
+  álbum con nombre es exactamente el "que lo puedan mirar" que pidió).
+  Dentro de cada día, un álbum nombrado saca su propia sub-sección con el
+  nombre como título; las fotos sueltas siguen en la grilla de siempre
+  debajo. El lightbox también muestra el nombre del álbum arriba del
+  caption cuando corresponde.
+
+### Verificado
+
+`npx tsc -b`, `npm run build` y `test_module_access.py` limpios. Es una
+columna TEXT nullable sin FK ni backfill — no repetí la verificación de
+lectura contra producción de la sesión anterior porque no hay nada nuevo
+que pudiera romperse ahí (la columna todavía no existe en la base real
+hasta que se aplique este deploy). Falta que alguien suba un batch con el
+check tildado y confirme que aparece con nombre en las tres pantallas
+(admin, y la galería de un padre tageado).
+
+---
+
 ## Sesión del 2026-09-10 (7) — editar el "Paperwork" del perfil de un chico a mano
 
 La directora pidió "editar la sección de documentación sin subir todos los

@@ -16,6 +16,8 @@ type Photo = {
   children: string[]
   /** Every photo uploaded in the same batch shares this (sql/65). */
   album_id: number
+  /** Set only when the batch was named as an album (sql/67). */
+  album_name: string | null
 }
 
 function isoToday(): string {
@@ -37,6 +39,8 @@ export function CounselorPhotos() {
   const [files, setFiles] = useState<File[]>([])
   const [tagged, setTagged] = useState<number[]>([])
   const [caption, setCaption] = useState('')
+  const [isAlbum, setIsAlbum] = useState(false)
+  const [albumName, setAlbumName] = useState('')
   const [error, setError] = useState('')
 
   const { data: roster } = useQuery({
@@ -64,9 +68,16 @@ export function CounselorPhotos() {
     setFiles([])
     setTagged([])
     setCaption('')
+    setIsAlbum(false)
+    setAlbumName('')
     setError('')
     if (fileRef.current) fileRef.current.value = ''
   }
+
+  // Left unchecked, a bulk upload is just a faster way to post several
+  // unrelated photos — most batches are not a curated album, so this is
+  // opt-in rather than automatic (sql/67).
+  const albumReady = !isAlbum || albumName.trim().length > 0
 
   const upload = useMutation({
     mutationFn: async () => {
@@ -74,11 +85,13 @@ export function CounselorPhotos() {
       const form = new FormData()
       // One 'file' field per photo — the server reads the whole list as one
       // batch, tags them all the same way, and groups them into one album
-      // (sql/65) instead of sending a separate notification for each.
+      // (sql/65) instead of sending a separate notification for each. Only a
+      // name (sql/67) makes it a real, browsable album.
       const downscaled = await Promise.all(files.map(downscale))
       for (const f of downscaled) form.append('file', f)
       form.append('date', date)
       if (caption.trim()) form.append('caption', caption.trim())
+      if (isAlbum && albumName.trim()) form.append('album_name', albumName.trim())
       tagged.forEach((id) => form.append('child_ids', String(id)))
       return api('/api/counselor/photos', { method: 'POST', body: form })
     },
@@ -139,6 +152,33 @@ export function CounselorPhotos() {
           </span>
         </div>
 
+        {files.length > 1 && (
+          <div className="mb-3 rounded-2xl border border-canvas-200 p-3">
+            <label className="flex items-center gap-2 text-[0.88rem] font-semibold text-ink-700">
+              <input
+                type="checkbox"
+                checked={isAlbum}
+                onChange={(e) => {
+                  setIsAlbum(e.target.checked)
+                  if (!e.target.checked) setAlbumName('')
+                }}
+                className="size-4 accent-grape-500"
+              />
+              This is an album
+            </label>
+            {isAlbum && (
+              <input
+                value={albumName}
+                onChange={(e) => setAlbumName(e.target.value)}
+                placeholder={'Album name, e.g. "Field trip to the zoo"'}
+                aria-label="Album name"
+                autoFocus
+                className="mt-2 w-full rounded-2xl border border-canvas-200 px-4 py-2.5 text-[0.9rem] font-medium text-ink-900 outline-none focus:border-grape-500"
+              />
+            )}
+          </div>
+        )}
+
         {files.length > 0 && (
           <>
             <p className="mb-2 text-[0.8rem] font-extrabold tracking-wide text-ink-400 uppercase">
@@ -192,7 +232,7 @@ export function CounselorPhotos() {
             <div className="flex gap-2">
               <Button
                 loading={upload.isPending}
-                disabled={tagged.length === 0}
+                disabled={tagged.length === 0 || !albumReady}
                 onClick={() => upload.mutate()}
               >
                 <ImagePlus className="size-4" strokeWidth={2.4} />
