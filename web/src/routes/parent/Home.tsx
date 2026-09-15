@@ -1,13 +1,100 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { CalendarOff, Car, Check, ChevronRight, MapPin, Users } from 'lucide-react'
-import { api } from '@/lib/api'
+import {
+  CalendarOff,
+  Car,
+  Check,
+  ChevronRight,
+  MapPin,
+  ThumbsUp,
+  Users,
+  X,
+} from 'lucide-react'
+import { api, ApiError } from '@/lib/api'
 import { hasModule, readSession } from '@/lib/auth'
 import { stateOn, todayIso, type Child } from '@/lib/parent'
 import { Avatar, Button, Card, EmptyState, Pill, Skeleton } from '@/components/ui'
 import { AuthorizedPickup } from '@/components/AuthorizedPickup'
 import { PushPrompt } from '@/components/PushPrompt'
+
+type PendingCheck = {
+  id: number
+  child_id: number
+  notification_date: string
+}
+
+/**
+ * "Is {name} coming today?", answered in one tap.
+ *
+ * The office's own attendance-check email and push already ask this — the
+ * question just had nowhere to answer from once a parent opened the app:
+ * /api/parent/notifications/:id/respond existed and worked, nothing on this
+ * screen ever called it. A parent with nothing to say either navigated
+ * looking for a button that wasn't there, or messaged the office directly,
+ * which is exactly the daily interruption this whole feature was meant to
+ * save. No confirmation banner, no push back to the office on "yes" — the
+ * point is that this is quiet.
+ */
+function AttendanceCheckPrompt({
+  childName,
+  notifId,
+}: {
+  childName: string
+  notifId: number
+}) {
+  const qc = useQueryClient()
+  const respond = useMutation({
+    mutationFn: (response: 'attending' | 'absent') =>
+      api(`/api/parent/notifications/${notifId}/respond`, {
+        method: 'POST',
+        body: { response },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['parent', 'notifications'] })
+      void qc.invalidateQueries({ queryKey: ['parent', 'children'] })
+    },
+  })
+
+  return (
+    <div className="mt-3.5 rounded-2xl border-2 border-sky-200 bg-sky-50 p-3.5">
+      <p className="mb-2.5 text-[0.88rem] font-bold text-sky-900">
+        Is {childName.split(' ')[0]} coming today?
+      </p>
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          variant="primary"
+          className="flex-1"
+          loading={respond.isPending && respond.variables === 'attending'}
+          disabled={respond.isPending}
+          onClick={() => respond.mutate('attending')}
+        >
+          <ThumbsUp className="size-4" strokeWidth={2.4} />
+          Yes, coming
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="flex-1"
+          loading={respond.isPending && respond.variables === 'absent'}
+          disabled={respond.isPending}
+          onClick={() => respond.mutate('absent')}
+        >
+          <X className="size-4" strokeWidth={2.4} />
+          No, absent
+        </Button>
+      </div>
+      {respond.isError && (
+        <p role="alert" className="mt-2 text-[0.8rem] font-semibold text-berry-600">
+          {respond.error instanceof ApiError
+            ? respond.error.message
+            : 'Could not save that.'}
+        </p>
+      )}
+    </div>
+  )
+}
 
 
 function greeting(): string {
@@ -35,6 +122,26 @@ export function ParentHome() {
     queryKey: ['parent', 'children'],
     queryFn: () => api<Child[]>('/api/parent/children'),
   })
+
+  // Only ever unanswered rows — the server already filters response IS NULL
+  // (parent_get_notifications) — so a child stops showing the prompt the
+  // moment either linked parent taps Yes or No, on this device or the other.
+  const { data: pendingChecks } = useQuery({
+    queryKey: ['parent', 'notifications'],
+    queryFn: () => api<PendingCheck[]>('/api/parent/notifications'),
+  })
+  const pendingByChild = useMemo(() => {
+    const map = new Map<number, PendingCheck>()
+    const today = todayIso()
+    for (const n of pendingChecks ?? []) {
+      // Only today's ask. A stale unanswered one from a week ago (the office
+      // never re-sends until the next scheduled day) is not "is she coming
+      // TODAY" any more, and answering it now would write today's date to
+      // the wrong absence.
+      if (n.notification_date === today) map.set(n.child_id, n)
+    }
+    return map
+  }, [pendingChecks])
 
   const attending = useMemo(
     () => (children ?? []).filter((c) => stateOn(c, todayIso()) === 'attending'),
@@ -219,6 +326,17 @@ export function ParentHome() {
                       <Pill>Day off</Pill>
                     )}
                   </div>
+
+                  {/* Answering today's attendance check, right where the
+                      question is — above "Report an absence", not a second
+                      screen away, since a parent who already found the app
+                      to answer this should not have to keep looking. */}
+                  {pendingByChild.has(child.id) && (
+                    <AttendanceCheckPrompt
+                      childName={child.name}
+                      notifId={pendingByChild.get(child.id)!.id}
+                    />
+                  )}
 
                   {/* Only actions that actually do something. Recurring
                       absences and make-up classes aren't built in this app

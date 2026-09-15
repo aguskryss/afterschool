@@ -74,6 +74,63 @@ notificación, no varias.
 
 ---
 
+## Sesión del 2026-09-15 — el botón de "sí, viene" que nunca se terminó de construir
+
+La directora pidió, arriba del botón de "ausente" en la app del padre, una
+opción de "sí" para confirmar asistencia — para dejar de recibir mensajes
+privados de padres confirmando a mano o confundidos con el mail diario de
+"¿viene hoy?".
+
+### Lo que encontré: el backend ya existía, entero, sin usar
+
+`POST /api/parent/notifications/<id>/respond` (server/app.py) ya acepta
+`'attending'` o `'absent'`, ya actualiza `parent_notifications.response`, y
+si la respuesta es `'absent'` ya escribe en `absences` — todo esto desde
+antes de esta sesión. `GET /api/parent/notifications` ya devuelve las
+preguntas sin responder. Lo único que faltaba: **ningún lugar de la SPA
+llamaba a ninguno de los dos.** El mail/push de "¿viene hoy?"
+(`_run_attendance_check`, el mismo que arma el asunto "Attendance Check")
+mandaba a los padres a `/app/home` con un link genérico "Open in the app" —
+y ahí no había nada que responder. Confirmado contra la base real: **103
+preguntas de hoy sin responder** en JCCNS, todas sin ninguna forma de
+contestarlas hasta este cambio.
+
+El botón de "ausente" al que se refería la directora es el que ya existe en
+cada tarjeta de `ParentHome.tsx` ("Report an absence" → `/calendar`) — eso
+sigue igual, es el camino completo para ausencias con excepciones/reglas
+recurrentes.
+
+### Lo que se agregó
+
+- `web/src/routes/parent/Home.tsx`, `AttendanceCheckPrompt`: nueva consulta
+  a `GET /api/parent/notifications`, filtrada a la de **hoy** (una pregunta
+  vieja sin responder de hace una semana no es "¿viene hoy?" y contestarla
+  ahora escribiría la fecha equivocada). Cuando hay una pendiente para ese
+  chico, aparece un cuadro celeste arriba de "Report an absence" con
+  **"Yes, coming"** y **"No, absent"**.
+- Agregué el "No" también, aunque no lo pidió explícitamente: si solo
+  hubiera "Sí", un padre que reporta la ausencia por el camino de
+  "Report an absence" en vez de acá nunca cierra esta pregunta puntual
+  (`response` se queda NULL) y el cuadro le seguiría preguntando después de
+  que ya contestó por otro lado. Con las dos opciones acá, cualquiera de
+  las dos cierra la pregunta del día de una.
+- **Sin notificación de vuelta** — confirmado leyendo
+  `parent_respond_notification`: solo hace commit y publica un evento SSE
+  interno (`parent-response`) que ningún frontend escucha todavía. Nadie en
+  la oficina recibe nada cuando un padre responde, que es justo lo que pidió.
+
+### Verificado
+
+`npx tsc -b` y `npm run build` limpios; `test_module_access.py` no aplica
+(la ruta ya era core, sin módulo, desde antes). Confirmado contra la base
+real de JCCNS (solo lecturas): 621 filas de `parent_notifications` en
+total, 103 sin responder para hoy — el cuadro nuevo va a tener trabajo real
+para mostrar apenas salga el deploy. No probé el POST en vivo (escribiría
+`absences` reales) — falta que un padre real conteste "Yes" o "No" y
+confirmar que el cuadro desaparece y que no te llega ningún aviso por eso.
+
+---
+
 ## Sesión del 2026-09-11 (bis) — un álbum es el que se nombra, no cualquier batch
 
 Apenas entregado el bulk upload, la directora avisó: no toda tanda de fotos
