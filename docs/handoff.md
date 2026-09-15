@@ -74,6 +74,54 @@ notificación, no varias.
 
 ---
 
+## Sesión del 2026-09-15 (bis) — un segundo guardián sin mail no tenía cómo conseguir uno
+
+La directora preguntó cómo editar la información de un padre/madre para
+agregarle un email que no aparecía. Contact #1 (`users.email`) es
+`NOT NULL` — nunca puede estar vacío — así que no era ese. Era el
+**Contact #2** (segundo guardián) del perfil de un chico: `child_contacts`
+permite email vacío a propósito (la planilla de la directora no siempre
+trae uno), y confirmé contra la base real de JCCNS que **7 segundos
+guardianes** están exactamente así — nombre y teléfono, sin mail (Matt
+Lampert, Chris Rogers, Brianna Bolden, Matt Lampert de nuevo en otro chico,
+Marc Liebman, Oliver Rukundo, Ori Pano).
+
+### El bug real
+
+`SecondGuardianControls` (`web/src/routes/admin/Children.tsx`) solo
+mostraba el formulario de Nombre/Teléfono/Email cuando **no había ningún**
+Contact #2 todavía (`if (!guardian) { ... }`). Si la fila YA existía —
+exactamente el caso de una importación de roster sin esa columna — lo
+único que quedaba era el botón "Invite as parent", que pega contra
+`POST .../second-guardian/invite`, y ese endpoint devuelve **400 "That
+contact has no email on file"** en cuanto falta. No había ningún botón
+"Editar" para llegar a corregirlo — el único camino de vuelta al mismo
+formulario era borrar el contacto y volver a cargarlo entero.
+
+### Lo que se agregó
+
+`PUT /api/admin/children/<id>/second-guardian` — **ya existía y ya
+hacía upsert** (`ON CONFLICT (child_id, priority) DO UPDATE`), documentado
+además como seguro de usar sobre un contacto ya vinculado ("no toca
+`user_id`"). Solo faltaba un botón que lo llamara fuera del alta inicial.
+
+- `SecondGuardianControls` ahora tiene un `startEdit()` que precarga
+  nombre/teléfono/email del guardián actual y reabre el mismo formulario
+  — desde el estado "vinculado" (Pill "Linked") y desde "cargado pero sin
+  invitar", no solo desde "no existe ninguno".
+- El botón "Invite as parent" ahora se deshabilita cuando no hay email, con
+  una línea abajo que dice por qué ("No email on file — add one to invite
+  them") en vez de fallar recién al tocarlo.
+
+### Verificado
+
+`npx tsc -b`, `npm run build` y `test_module_access.py` limpios (ruta core,
+sin módulo). Confirmado contra la base real de JCCNS (solo lecturas): 129
+segundos guardianes en total, 7 con el mail vacío — el botón nuevo tiene
+trabajo real esperando apenas salga el deploy.
+
+---
+
 ## Sesión del 2026-09-15 — el botón de "sí, viene" que nunca se terminó de construir
 
 La directora pidió, arriba del botón de "ausente" en la app del padre, una

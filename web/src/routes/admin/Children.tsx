@@ -1532,6 +1532,18 @@ function ApprovedPickups({ childId }: { childId: number }) {
  * one, or the child was added by hand) → a form to add one; on file but not
  * linked → "Invite as parent"; linked → their own account status, with a
  * way to take the access back without deleting them as a contact.
+ *
+ * EDIT REACHES ALL THREE STATES, NOT JUST THE FIRST
+ *   A roster import routinely leaves a name and phone with no email — the
+ *   sheet just did not have one — and "Invite as parent" 400s with "That
+ *   contact has no email on file" the moment it is missing. Until this, the
+ *   only form that could ever fill it in was the "add" one, which only
+ *   rendered when `guardian` was null — so a contact that already existed
+ *   without an email had no way to gain one short of deleting and re-adding
+ *   them. The same form now reopens, pre-filled, from either the unlinked or
+ *   the linked state. Editing never touches `user_id` (see the PUT route's
+ *   own docstring), so correcting a typo after someone has already signed in
+ *   cannot re-link or unlink their account.
  */
 function SecondGuardianControls({
   childId,
@@ -1547,6 +1559,14 @@ function SecondGuardianControls({
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [error, setError] = useState('')
+
+  const startEdit = () => {
+    setName(guardian?.name ?? '')
+    setPhone(guardian?.phone ?? '')
+    setEmail(guardian?.email ?? '')
+    setError('')
+    setEditing(true)
+  }
 
   const save = useMutation({
     mutationFn: () =>
@@ -1593,19 +1613,23 @@ function SecondGuardianControls({
       ),
   })
 
-  if (!guardian) {
-    if (!editing) {
-      return (
-        <button
-          type="button"
-          onClick={() => setEditing(true)}
-          className="mt-3 flex items-center gap-1.5 rounded-2xl px-2 py-1.5 text-[0.82rem] font-bold text-ink-600 transition-colors hover:bg-canvas-100 active:bg-canvas-200"
-        >
-          <Plus className="size-4" strokeWidth={2.8} />
-          Add a second guardian
-        </button>
-      )
-    }
+  if (!guardian && !editing) {
+    return (
+      <button
+        type="button"
+        onClick={startEdit}
+        className="mt-3 flex items-center gap-1.5 rounded-2xl px-2 py-1.5 text-[0.82rem] font-bold text-ink-600 transition-colors hover:bg-canvas-100 active:bg-canvas-200"
+      >
+        <Plus className="size-4" strokeWidth={2.8} />
+        Add a second guardian
+      </button>
+    )
+  }
+
+  // Reopens pre-filled from either the unlinked or the linked state below —
+  // it is the one path back to a contact that has a name and a phone from
+  // the roster but no email, which nothing downstream can invite without.
+  if (editing) {
     return (
       <form
         onSubmit={(e) => {
@@ -1659,6 +1683,8 @@ function SecondGuardianControls({
     )
   }
 
+  if (!guardian) return null // unreachable — the two cases above cover it
+
   if (guardian.user_id) {
     return (
       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -1670,6 +1696,10 @@ function SecondGuardianControls({
           {guardian.last_login_at &&
             ` · last login ${new Date(guardian.last_login_at).toLocaleDateString()}`}
         </span>
+        <Button size="sm" variant="outline" onClick={startEdit}>
+          <Pencil className="size-3.5" strokeWidth={2.4} />
+          Edit
+        </Button>
         <Button
           size="sm"
           variant="outline"
@@ -1684,11 +1714,29 @@ function SecondGuardianControls({
   }
 
   return (
-    <div className="mt-2">
-      <Button size="sm" loading={invite.isPending} onClick={() => invite.mutate()}>
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <Button
+        size="sm"
+        loading={invite.isPending}
+        disabled={!guardian.email}
+        onClick={() => invite.mutate()}
+      >
         <Send className="size-3.5" strokeWidth={2.6} />
         Invite as parent
       </Button>
+      <Button size="sm" variant="outline" onClick={startEdit}>
+        <Pencil className="size-3.5" strokeWidth={2.4} />
+        Edit
+      </Button>
+      {/* The exact reason Invite is disabled, named — not just greyed out.
+          A roster import routinely leaves this blank; without saying so, the
+          fix (tap Edit, add an email) is not obvious from a disabled button
+          alone. */}
+      {!guardian.email && (
+        <p className="w-full text-[0.8rem] font-medium text-ink-400">
+          No email on file — add one to invite them.
+        </p>
+      )}
     </div>
   )
 }
