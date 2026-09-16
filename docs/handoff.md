@@ -74,6 +74,71 @@ notificación, no varias.
 
 ---
 
+## Sesión del 2026-09-16 — la caída del 16/9: por qué no volvía sola
+
+La directora reportó que el sistema dejó de traer datos de golpe. `/api/health`
+devolvía 503 `{"status":"degraded"}` — el proceso de la app (gunicorn) estaba
+arriba y respondiendo, pero no conseguía una conexión de base que sirviera.
+Conectándome yo mismo directo a Supabase (solo lectura) confirmé que la base
+estaba sana — el problema no era Supabase, era el pool interno de la app.
+Reiniciar el servicio en Render lo resolvió al toque, pero quedaba la
+pregunta de la directora: por qué pasó, y por qué no se arregló solo.
+
+### La causa real, encontrada en el código
+
+`get_db()`/`get_db_transaction()` (server/database.py) hacían:
+
+```python
+conn = _get_pool().getconn()
+conn.autocommit = True
+_apply_organization(conn, *_resolve_organization())   # una query real
+return DbConnection(conn, pooled=True)
+```
+
+Si Supabase (o su pooler, Supavisor) ya había cerrado esa conexión de su
+lado — una sesión ociosa que recicla, un reinicio breve del otro lado, nada
+que tenga que ver con este código — `_apply_organization` es la primera
+query real que se corre sobre ella, y ahí explota. La excepción salía
+directo de `get_db()` **con la conexión ya marcada como "afuera" del pool y
+sin ningún `DbConnection` construido que supiera devolverla** —
+`DbConnection.close()` ya sabe descartar una conexión envenenada
+(`close=True`) en el camino de VUELTA al pool, pero no había ningún
+equivalente para una que nace muerta en el camino de SALIDA.
+
+Cada request que caía justo en una sesión que Supabase ya había reciclado
+perdía una conexión del pool para siempre — `maxconn=5`, ninguna se
+devolvía nunca. Bastan cinco así seguidas (perfectamente posible en un
+segundo de tráfico normal) y el pool entero queda drenado: nada después
+puede conseguir conexión, sin excepción, hasta que el proceso reinicia y
+reconstruye el pool desde cero. Coincide exacto con lo que vimos: proceso
+vivo, base sana, cero conexiones del rol de la app en `pg_stat_activity`, y
+nada que se arreglara solo.
+
+### El arreglo
+
+`_get_pooled_connection()` nueva en `server/database.py`: si
+`_apply_organization` falla sobre la conexión recién sacada del pool, la
+descarta con `putconn(conn, close=True)` (mismo mecanismo que `close()` ya
+usaba del otro lado) y pide otra — hasta 6 veces, más que `maxconn=5` a
+propósito, para poder agotar cualquier cantidad plausible de conexiones que
+Supabase haya cortado de una sola vez. Si la base está genuinamente caída,
+las 6 fallan igual y ahí sí se re-lanza el error real — `/api/health`
+sigue reportando `degraded` de verdad cuando corresponde, esto no lo
+esconde.
+
+### Verificado
+
+`python -m py_compile server/database.py` limpio. Corrí un smoke test real
+contra la base de producción (`get_db()` y `get_db_transaction()`, ambos
+solo-lectura) — conexión, query y `close()` limpios. `test_module_access.py`
+sin relación pero pasa igual. **No pude reproducir el fallo original en sí**
+(necesitaría forzar que Supabase cierre una conexión activa del pool, que
+no es algo que se simule con seguridad contra producción) — el arreglo
+sale de leer el código con la falla real ya confirmada en producción, no de
+un test que la reproduzca de punta a punta.
+
+---
+
 ## Sesión del 2026-09-15 (bis) — un segundo guardián sin mail no tenía cómo conseguir uno
 
 La directora preguntó cómo editar la información de un padre/madre para

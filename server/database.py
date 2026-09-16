@@ -141,18 +141,54 @@ def _apply_organization(conn, organization_id, is_superadmin=False):
         )
 
 
+def _get_pooled_connection(autocommit):
+    """A checked-out connection, guaranteed live — or the caller finds out why
+    it genuinely cannot get one.
+
+    getconn() can hand back a connection Supabase's own pooler already closed
+    on its end — an idle session it recycled, or a brief restart over there.
+    Nothing here caused that; the failure is discovering it, which only
+    happens once _apply_organization's own query hits the dead socket.
+    DbConnection.close() already discards a poisoned connection with
+    close=True — but only on the way BACK to the pool. There was no
+    equivalent for one born dead on the way OUT: the exception used to
+    propagate straight out of get_db() with the connection still marked
+    checked out and never returned, because the DbConnection wrapping it — the
+    only thing that knows how to hand it back — was never constructed. A run
+    of requests each landing on a session Supabase had already recycled
+    quietly bled the whole pool this way: maxconn checked out, none ever
+    given back, and nothing after that could get a connection until the
+    process restarted. That is what took the app down on 2026-09-16.
+
+    Retried past pool size on purpose: enough to work through every
+    connection Supabase could plausibly have dropped at once, discarding each
+    as it fails, without looping forever if the database is genuinely
+    unreachable — at that point every attempt fails the same way and this
+    re-raises the real error instead of hiding an actual outage.
+    """
+    pool = _get_pool()
+    last_err = None
+    for _ in range(6):
+        conn = pool.getconn()
+        try:
+            conn.autocommit = autocommit
+            _apply_organization(conn, *_resolve_organization())
+            return conn
+        except Exception as e:
+            last_err = e
+            try:
+                pool.putconn(conn, close=True)
+            except Exception:
+                pass
+    raise last_err
+
+
 def get_db():
-    conn = _get_pool().getconn()
-    conn.autocommit = True
-    _apply_organization(conn, *_resolve_organization())
-    return DbConnection(conn, pooled=True)
+    return DbConnection(_get_pooled_connection(True), pooled=True)
 
 def get_db_transaction():
     """Get a connection with autocommit OFF for transactions."""
-    conn = _get_pool().getconn()
-    conn.autocommit = False
-    _apply_organization(conn, *_resolve_organization())
-    return DbConnection(conn, pooled=True)
+    return DbConnection(_get_pooled_connection(False), pooled=True)
 
 def _connect_with_retry(dsn, attempts=6, base_delay=2.0):
     """Open a standalone psycopg2 connection, retrying on transient errors.
