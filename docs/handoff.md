@@ -74,6 +74,52 @@ notificación, no varias.
 
 ---
 
+## Sesión del 2026-09-18 — agregar un día que el Excel nunca le dio a un chico
+
+La directora pidió poder agregarle a un chico, desde el panel de admin,
+actividades en un día que la planilla nunca le había dado.
+
+### Lo que ya estaba construido (y lo que faltaba)
+
+El perfil de un chico (`AdminChildProfile` → sección "Weekly schedule") ya
+tenía un editor completo por día — `DayClassEditor`, con selector de clases
+del catálogo de ese día y hora de salida — pero **solo para un día que el
+chico ya tenía registrado**. Un día donde `registrations` no tenía fila en
+absoluto (el caso exacto de "el Excel nunca le dio actividades ahí") se
+mostraba como "Not attending", sin ningún botón para abrirlo.
+
+El backend (`admin_update_child` PUT, `_sync_child_schedule`,
+`server/app.py`) **ya soportaba esto de punta a punta** — recibe la semana
+entera como `[{day, class_session_ids, dismissal_time}]`, y un día que no
+estaba antes en la lista simplemente se crea. Era pura falta de UI, igual
+que el caso del "sí, viene" de la sesión pasada.
+
+### Lo que se agregó
+
+Todo en `web/src/routes/admin/Children.tsx`, `WeeklySchedule`:
+
+- Un día sin registrar ahora muestra un botón **"Add {día}"** en vez de solo
+  el texto "Not attending". Abre el mismo `DayClassEditor` que ya existía
+  para editar un día existente — mismo componente, arrancando de una lista
+  vacía en vez de la actual.
+- `saveDay()` se reescribió para que agregar y editar sean el mismo camino:
+  antes usaba `.map()` sobre `child.days`, que no puede agregar un día que
+  no estaba ahí — ahora filtra el día que se está guardando y lo vuelve a
+  poner al final, agregado o no.
+
+Sin cambios de backend — ya estaba todo. Sin migración.
+
+### Verificado
+
+`npx tsc -b`, `npm run build` y `test_module_access.py` limpios. Confirmado
+contra la base real de JCCNS (solo lecturas): **89 chicos activos** tienen
+menos de 5 días registrados — Benny Ward sin miércoles ni viernes, Liam
+Ronshagen sin lunes/martes/viernes, y así — todos con clases ya cargadas
+esos días para elegir (entre 3 y 16 según el día). El botón nuevo tiene
+trabajo real esperando.
+
+---
+
 ## Sesión del 2026-09-16 — la caída del 16/9: por qué no volvía sola
 
 La directora reportó que el sistema dejó de traer datos de golpe. `/api/health`

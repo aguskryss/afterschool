@@ -1033,18 +1033,23 @@ function WeeklySchedule({ child }: { child: ChildDetail }) {
   }
 
   // Every currently-attending day travels along unchanged except the one
-  // being saved — the endpoint treats a day missing from this list as "no
-  // longer attending", so sending anything less would unenroll the rest.
-  // `dismissal_time` is only sent for the day being saved: leaving the key
-  // off the others is what tells the endpoint not to touch their hour.
+  // being saved — the endpoint treats a day missing from this list as "not
+  // attending" (or "no longer attending", for a day that was already there),
+  // so sending anything less would unenroll the rest. `dismissal_time` is
+  // only sent for the day being saved: leaving the key off the others is
+  // what tells the endpoint not to touch their hour.
+  //
+  // The same call handles a day the child already attends AND a day Excel
+  // never gave them — a day missing from `child.days` (no registrations row
+  // at all) simply is not in the `.filter()` below, so it falls straight
+  // into the appended entry instead of needing a separate "add" path.
   function saveDay(day: string, classIds: number[], dismissalTime: number | null) {
-    save.mutate(
-      child.days.map((d) =>
-        d.day === day
-          ? { day: d.day, class_session_ids: classIds, dismissal_time: dismissalTime }
-          : { day: d.day, class_session_ids: d.classes.map((c) => c.id) },
-      ),
-    )
+    save.mutate([
+      ...child.days
+        .filter((d) => d.day !== day)
+        .map((d) => ({ day: d.day, class_session_ids: d.classes.map((c) => c.id) })),
+      { day, class_session_ids: classIds, dismissal_time: dismissalTime },
+    ])
   }
 
   return (
@@ -1061,15 +1066,27 @@ function WeeklySchedule({ child }: { child: ChildDetail }) {
                 <span className="text-[0.85rem] font-bold text-ink-500">
                   {d}
                 </span>
-                <span className="text-right text-[0.9rem] font-semibold text-ink-900">
-                  {entry ? (
-                    dismissalLabel(entry.dismissal_time)
-                  ) : (
-                    <span className="font-medium text-ink-400">
-                      Not attending
-                    </span>
-                  )}
-                </span>
+                {entry ? (
+                  <span className="text-right text-[0.9rem] font-semibold text-ink-900">
+                    {dismissalLabel(entry.dismissal_time)}
+                  </span>
+                ) : editingDay === d ? (
+                  <span className="text-right text-[0.82rem] font-medium text-ink-400">
+                    Not attending yet
+                  </span>
+                ) : (
+                  // The day Excel never gave this child — a late signup, a
+                  // family that added a day mid-season. Opens the exact same
+                  // editor an existing day uses, just starting from nothing.
+                  <button
+                    type="button"
+                    onClick={() => setEditingDay(d)}
+                    className="flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.82rem] font-bold text-sky-700 hover:bg-sky-50"
+                  >
+                    <Plus className="size-3.5" strokeWidth={2.8} />
+                    Add {d}
+                  </button>
+                )}
               </div>
 
               {entry && editingDay !== d && (
@@ -1127,11 +1144,11 @@ function WeeklySchedule({ child }: { child: ChildDetail }) {
                 </div>
               )}
 
-              {entry && editingDay === d && (
+              {editingDay === d && (
                 <DayClassEditor
                   day={d}
-                  current={entry.classes}
-                  dismissalTime={entry.dismissal_time}
+                  current={entry?.classes ?? []}
+                  dismissalTime={entry?.dismissal_time ?? null}
                   saving={save.isPending}
                   onSave={(ids, hour) => saveDay(d, ids, hour)}
                   onCancel={() => setEditingDay(null)}
