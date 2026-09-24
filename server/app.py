@@ -7589,9 +7589,38 @@ def admin_get_absences():
         return jsonify({'error': 'Invalid date'}), 400
     db = get_db()
     absent_ids = absent_child_ids_for_date(db, date_str)
+    # Marked absent at the school gate by a counselor. That lands in
+    # attendance_records.status, not in `absences`, and for a director it is
+    # the same answer to "is this child coming?" — so it is listed here too,
+    # tagged so the screen can say who marked it and undo it the right way
+    # (a status change, since there is no absence row to delete). A child
+    # the family also reported keeps the family's row: the report came first.
+    gate = db.execute("""
+        SELECT c.id AS child_id, c.name AS child_name, u.name AS parent_name,
+               s.name AS school, ar.status_at, sb.name AS status_by_name
+          FROM attendance_records ar
+          JOIN children c ON c.id = ar.child_id
+          JOIN users u ON c.parent_id = u.id
+          JOIN schools s ON c.school_id = s.id
+          LEFT JOIN users sb ON sb.id = ar.status_by
+         WHERE ar.attendance_date = %s AND ar.status = %s
+         ORDER BY s.name, c.name
+    """, (date_str, STATUS_ABSENT)).fetchall()
+    gate_rows = [{
+        'child_id': g['child_id'],
+        'child_name': g['child_name'],
+        'parent_name': g['parent_name'],
+        'school': g['school'],
+        'absence_date': date_str,
+        'reported_at': iso_utc(g['status_at']),
+        'reported_by_name': g['status_by_name'],
+        'reported_by_role': 'staff',
+        'recurring': False,
+        'source': 'gate',
+    } for g in gate if g['child_id'] not in absent_ids]
     if not absent_ids:
         db.close()
-        return jsonify([])
+        return jsonify(gate_rows)
     day = _weekday_name(datetime.strptime(date_str, '%Y-%m-%d').date())
     absences = db.execute("""
         SELECT c.id AS child_id, c.name AS child_name, u.name AS parent_name,
@@ -7613,7 +7642,7 @@ def admin_get_absences():
          ORDER BY s.name, c.name
     """, (date_str, date_str, day, date_str, date_str, list(absent_ids))).fetchall()
     db.close()
-    return jsonify([{
+    reported = [{
         'child_id': a['child_id'],
         'child_name': a['child_name'],
         'parent_name': a['parent_name'],
@@ -7628,7 +7657,10 @@ def admin_get_absences():
         # read) is staff acting on the family's behalf.
         'reported_by_role': a['reported_by_role'],
         'recurring': a['one_off_reported_at'] is None and a['recurring_set_up_at'] is not None,
-    } for a in absences])
+        'source': 'report',
+    } for a in absences]
+    return jsonify(sorted(reported + gate_rows,
+                          key=lambda r: (r['school'] or '', r['child_name'] or '')))
 
 
 @app.route('/api/admin/absences', methods=['POST'])

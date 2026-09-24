@@ -12,6 +12,7 @@ import {
 import { api } from '@/lib/api'
 import { hasModule } from '@/lib/auth'
 import {
+  absentToday,
   hasAllergy,
   schoolProgress,
   shortAllergy,
@@ -416,7 +417,7 @@ function SchoolCard({
 
 /* ── Exceptions ──────────────────────────────────────────────────────── */
 
-type Flagged = { child: RosterChild; school: string }
+type Flagged = { child: RosterChild; school: string; atGate?: boolean }
 
 /**
  * Only what needs a person, never a full list.
@@ -424,7 +425,8 @@ type Flagged = { child: RosterChild; school: string }
  * Everything here is derived from the roster the screen already holds — nothing
  * is invented, and nothing needs an endpoint that does not exist. "Not answered
  * for" is a child with no attendance row at all, which is exactly what Submit
- * closes out; absences come from the parent; and the allergy section is a
+ * closes out; absences come from the parent or from a counselor's mark at
+ * the gate; and the allergy section is a
  * standing reference rather than an exception, because a nut allergy does not
  * stop being true when nothing else is wrong.
  *
@@ -449,7 +451,7 @@ function ExceptionsPanel({
       for (const c of schoolProgress(s, marks).pending) {
         pending.push({ child: c, school: s.school })
       }
-      for (const c of s.absent) absent.push({ child: c, school: s.school })
+      for (const a of absentToday(s, marks)) absent.push({ ...a, school: s.school })
       for (const c of s.attending) {
         if (hasAllergy(c.allergies)) allergic.push({ child: c, school: s.school })
       }
@@ -484,7 +486,7 @@ function ExceptionsPanel({
         )}
 
         {absent.length > 0 && (
-          <ExcSection title="Reported absent" tone="ink" rows={absent} />
+          <ExcSection title="Absent" tone="ink" rows={absent} />
         )}
 
         {/* Red is only ever this. */}
@@ -521,7 +523,7 @@ function ExcSection({
         </span>
       </p>
       <ul className="px-3.5 pt-1 pb-2">
-        {shown.map(({ child, school }) => (
+        {shown.map(({ child, school, atGate }) => (
           <li
             key={child.id}
             className="border-t border-canvas-100 py-2 first:border-t-0"
@@ -532,6 +534,7 @@ function ExcSection({
             <p className="text-[0.83rem] font-semibold text-ink-500">
               {school}
               {child.grade && ` · Gr ${child.grade}`}
+              {atGate && ' · marked at school'}
             </p>
           </li>
         ))}

@@ -10,6 +10,7 @@ import {
 import { isGone, type AttendanceMap } from '@/lib/attendance'
 import { readSession } from '@/lib/auth'
 import {
+  absentToday,
   destinationSuffix,
   hhmm,
   schoolProgress,
@@ -32,6 +33,7 @@ function AttendanceList({
 }) {
   const date = school.date
   const mark = useMarkAttendance(date)
+  const absent = absentToday(school, marks)
 
   if (school.attending.length === 0) {
     return (
@@ -126,18 +128,19 @@ function AttendanceList({
         })}
       </ul>
 
-      {school.absent.length > 0 && (
+      {absent.length > 0 && (
         <div className="border-t border-canvas-200 bg-canvas-50 px-4 py-3">
           <p className="mb-2 text-[0.74rem] font-extrabold tracking-wide text-ink-400 uppercase">
             Absent today
           </p>
           <div className="flex flex-wrap gap-1.5">
-            {school.absent.map((c) => (
+            {absent.map(({ child: c, atGate }) => (
               <span
                 key={c.id}
                 className="rounded-full bg-berry-50 px-2.5 py-1 text-xs font-bold text-berry-600"
               >
                 {c.name}
+                {atGate && ' · at school'}
               </span>
             ))}
           </div>

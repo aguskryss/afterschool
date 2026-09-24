@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { isGone, isHere, STATUS_LABEL } from '@/lib/attendance'
 import {
+  absentToday,
   destinationSuffix,
   useAttendanceMarks,
   useMarkAttendance,
@@ -202,18 +203,19 @@ export function CounselorRoster() {
               </ul>
             )}
 
-            {school.absent.length > 0 && (
+            {absentToday(school, marks).length > 0 && (
               <div className="border-t border-canvas-200 bg-canvas-50 px-4 py-3">
                 <p className="mb-2 text-[0.74rem] font-extrabold tracking-wide text-ink-400 uppercase">
                   Absent
                 </p>
                 <div className="flex flex-wrap gap-1.5">
-                  {school.absent.map((c) => (
+                  {absentToday(school, marks).map(({ child: c, atGate }) => (
                     <span
                       key={c.id}
                       className="rounded-full bg-berry-50 px-2.5 py-1 text-xs font-bold text-berry-600"
                     >
                       {c.name}
+                      {atGate && ' · at school'}
                     </span>
                   ))}
                 </div>

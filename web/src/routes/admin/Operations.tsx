@@ -281,6 +281,9 @@ type AbsenceRow = {
    *  staff acting on their behalf (a phone call, most often). */
   reported_by_role: string | null
   recurring: boolean
+  /** 'report' — the family (or the office for them) said so ahead of time.
+   *  'gate' — a counselor marked the child absent at the school. */
+  source: 'report' | 'gate'
 }
 
 /** "Sep 9 at 2:17 PM" — when a report actually landed, not just its date. */
@@ -297,14 +300,29 @@ type ChildOption = { id: number; name: string; school: string }
 /** Undoes one absence — "the child WILL attend this date" (same as the
  * parent's own Remove), not a delete of a log entry. No confirm dialog: it is
  * exactly as reversible as marking one in the first place. */
-function UndoAbsence({ childId, date }: { childId: number; date: string }) {
+function UndoAbsence({
+  childId,
+  date,
+  source,
+}: {
+  childId: number
+  date: string
+  source: AbsenceRow['source']
+}) {
   const qc = useQueryClient()
   const remove = useMutation({
+    // A gate mark has no row in `absences` to delete: it is the child's
+    // status for the day, so undoing it puts them back to waiting at school.
     mutationFn: () =>
-      api('/api/admin/absences', {
-        method: 'DELETE',
-        body: { child_id: childId, date },
-      }),
+      source === 'gate'
+        ? api('/api/admin/child-status', {
+            method: 'POST',
+            body: { child_id: childId, date, status: 'waiting' },
+          })
+        : api('/api/admin/absences', {
+            method: 'DELETE',
+            body: { child_id: childId, date },
+          }),
     onSuccess: () =>
       void qc.invalidateQueries({ queryKey: ['admin', 'absences', date] }),
     onError: (e) =>
@@ -565,7 +583,11 @@ export function AdminAbsences() {
           // account is gone — never invented, just not shown.
           return <span className="text-ink-400">—</span>
         }
-        const label = r.recurring
+        const label = r.source === 'gate'
+          ? r.reported_by_name
+            ? `Marked at school by ${r.reported_by_name}`
+            : 'Marked at school'
+          : r.recurring
           ? 'Recurring absence'
           : r.reported_by_role === 'parent'
             ? 'Reported by parent'
@@ -576,7 +598,8 @@ export function AdminAbsences() {
           <div>
             <p className="font-bold text-ink-800">{label}</p>
             <p className="text-[0.82rem] font-semibold text-ink-400">
-              {r.recurring ? 'Set up' : 'Sent'} {formatReportedAt(r.reported_at)}
+              {r.recurring ? 'Set up' : r.source === 'gate' ? 'At' : 'Sent'}{' '}
+              {formatReportedAt(r.reported_at)}
             </p>
           </div>
         )
@@ -587,7 +610,9 @@ export function AdminAbsences() {
       header: '',
       align: 'right',
       value: () => '',
-      render: (r) => <UndoAbsence childId={r.child_id} date={date} />,
+      render: (r) => (
+        <UndoAbsence childId={r.child_id} date={date} source={r.source} />
+      ),
     },
   ]
 

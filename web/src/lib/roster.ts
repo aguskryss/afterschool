@@ -185,6 +185,25 @@ export function schoolProgress(
   }
 }
 
+/**
+ * Everyone out today at one school, from either source: the family's report
+ * (`school.absent`, from the roster) or a counselor marking them absent at
+ * the gate (a status on the attendance mark). A gate-marked child stays in
+ * `attending` too, so a mistaken tap can still be undone from their row —
+ * this list is the summary, not a move.
+ */
+export function absentToday(
+  school: RosterSchool,
+  marks: AttendanceMap | undefined,
+): { child: RosterChild; atGate: boolean }[] {
+  return [
+    ...school.absent.map((child) => ({ child, atGate: false })),
+    ...school.attending
+      .filter((c) => marks?.[String(c.id)]?.status === 'absent')
+      .map((child) => ({ child, atGate: true })),
+  ]
+}
+
 /* ── Search ──────────────────────────────────────────────────────────── */
 
 const fold = (s: string) =>
