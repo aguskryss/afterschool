@@ -294,6 +294,9 @@ export function CounselorMyDay() {
   const { data, isPending } = useQuery({
     queryKey: ['counselor', 'my-day', date],
     queryFn: () => api<MyDay>(`/api/counselor/my-day?date=${date}`),
+    // Absences and pickups are marked on other devices all afternoon; an
+    // iPad left open on a class list has no other way to hear about them.
+    refetchInterval: date === isoToday() ? 30_000 : false,
   })
 
   const blocks = data?.blocks ?? []

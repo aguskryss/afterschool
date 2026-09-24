@@ -6939,6 +6939,19 @@ def _plan_for_day(db, day, on_date=None):
 
     absent = (absent_child_ids_for_date(db, on_date.isoformat())
               if on_date else set())
+    # A counselor marking a child absent at the school gate lands in
+    # attendance_records.status, not in `absences` (that table is the
+    # parent's report). Both mean "not coming to class today", and a class
+    # list that only knew about the parent's half showed a child the gate
+    # already knew wasn't there.
+    if on_date:
+        absent |= {r['child_id'] for r in db.execute(
+            """
+            SELECT child_id FROM attendance_records
+             WHERE attendance_date = %s AND status = %s
+            """,
+            (on_date.isoformat(), STATUS_ABSENT)
+        ).fetchall()}
     # Already picked up today — keyed by child_id to carry WHEN, same as
     # `released_at` reads it below. A class or care block later in the
     # afternoon is the routing engine's static weekly plan; it has no idea a
