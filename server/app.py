@@ -10190,13 +10190,15 @@ def counselor_upload_photo():
         child_ids = [int(c) for c in request.form.getlist('child_ids') if c]
     except ValueError:
         return jsonify({'error': 'Invalid child_ids'}), 400
-    if not child_ids:
-        return jsonify({'error': 'Tag at least one child'}), 400
-
     # Set by the admin "send to every family" toggle, which tags every active
     # child rather than the ones actually pictured — so the notification text
     # can't promise "of your child" the way a real per-child tag can.
-    broadcast = request.form.get('broadcast') == '1'
+    #
+    # No tags at all means the same thing: a photo of the program rather than
+    # of particular children (a group shot, the room, an activity), for every
+    # family. It used to be refused, and an untagged photo would otherwise
+    # reach no parent at all, since galleries are built from tags.
+    broadcast = request.form.get('broadcast') == '1' or not child_ids
 
     caption = (request.form.get('caption') or '').strip() or None
     # NULL unless the uploader deliberately named this batch (sql/67) — a
@@ -10228,16 +10230,36 @@ def counselor_upload_photo():
     db = get_db_transaction()
     uploaded_paths: list[str] = []
     try:
+        if not child_ids:
+            # Everyone, resolved here rather than trusted from the client —
+            # same set the admin toggle sends. Not scoped to the counselor's
+            # schools on purpose: "every family" was the choice.
+            child_ids = [r['id'] for r in db.execute(
+                "SELECT id FROM children WHERE active = 1"
+            ).fetchall()]
+            if not child_ids:
+                db.rollback()
+                return jsonify({'error': 'There are no active children to share it with'}), 400
+            school_ids = None
+        elif claims.get('role') == 'counselor':
+            school_ids = counselor_school_ids(db, user_id, photo_date)
+        else:
+            school_ids = None
+
         # Every tagged child must be in a school this counselor covers. Without
         # this a counselor could tag any child in the JCC and push the photo
         # into a family's gallery they have nothing to do with.
-        if claims.get('role') == 'counselor':
+        #
+        # Same rule as the roster the tag picker is built from
+        # (counselor_school_ids): a raw join on counselor_schools here said
+        # "not on your roster" for children the picker had just offered — a
+        # counselor with no assignments (who sees every school) or one whose
+        # assignment is dated.
+        if school_ids is not None:
             allowed = db.execute("""
-                SELECT c.id FROM children c
-                  JOIN counselor_schools cs
-                    ON cs.school_id = c.school_id AND cs.counselor_id = %s
-                 WHERE c.id = ANY(%s)
-            """, (user_id, child_ids)).fetchall()
+                SELECT id FROM children
+                 WHERE id = ANY(%s) AND school_id = ANY(%s)
+            """, (child_ids, school_ids)).fetchall()
         else:
             allowed = db.execute(
                 "SELECT id FROM children WHERE id = ANY(%s)", (child_ids,)

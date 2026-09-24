@@ -28,9 +28,10 @@ function isoToday(): string {
 /**
  * Counselor photos: shoot, tag, post.
  *
- * Tagging is required rather than optional. An untagged photo reaches no
- * parent — it would sit in storage looking uploaded while nobody could see it,
- * which is the worst of both outcomes.
+ * Tagging is optional. Tagged, a photo reaches those children's families;
+ * untagged, the server shares it with every family — a group shot or the
+ * room, not a particular child. The hint under the button says which one is
+ * about to happen, so neither is a surprise.
  */
 export function CounselorPhotos() {
   const qc = useQueryClient()
@@ -232,7 +233,7 @@ export function CounselorPhotos() {
             <div className="flex gap-2">
               <Button
                 loading={upload.isPending}
-                disabled={tagged.length === 0 || !albumReady}
+                disabled={!albumReady}
                 onClick={() => upload.mutate()}
               >
                 <ImagePlus className="size-4" strokeWidth={2.4} />
@@ -242,11 +243,11 @@ export function CounselorPhotos() {
                 Cancel
               </Button>
             </div>
-            {tagged.length === 0 && children.length > 0 && (
-              <p className="mt-2 text-[0.8rem] font-medium text-ink-400">
-                Tag at least one child — that's who gets to see it.
-              </p>
-            )}
+            <p className="mt-2 text-[0.8rem] font-medium text-ink-400">
+              {tagged.length === 0
+                ? 'Nobody tagged — every family will see it.'
+                : 'Only the tagged children’s families will see it.'}
+            </p>
           </>
         )}
       </Card>
