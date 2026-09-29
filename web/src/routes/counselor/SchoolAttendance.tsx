@@ -73,7 +73,7 @@ function AttendanceList({
                       : 'hover:bg-canvas-100'
                 }`}
               >
-                <Avatar name={child.name} id={child.id} />
+                <Avatar name={child.name} id={child.id} photoUrl={child.photo_url} />
                 <div className="min-w-0 flex-1">
                   {/* No allergy flag here. Ticking a child onto the bus is not
                       a moment where allergies change anything, and a marker on

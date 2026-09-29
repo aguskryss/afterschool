@@ -15,6 +15,7 @@ import { api, ApiError } from '@/lib/api'
 import { hasModule, readSession } from '@/lib/auth'
 import { stateOn, todayIso, type Child } from '@/lib/parent'
 import { Avatar, Button, Card, EmptyState, Pill, Skeleton } from '@/components/ui'
+import { ChildPhoto } from '@/components/ChildPhoto'
 import { AuthorizedPickup } from '@/components/AuthorizedPickup'
 import { PushPrompt } from '@/components/PushPrompt'
 
@@ -246,7 +247,7 @@ export function ParentHome() {
                           }`}
                         >
                           <span className={on ? '' : 'opacity-45 grayscale'}>
-                            <Avatar name={c.name} id={c.id} size="sm" />
+                            <Avatar name={c.name} id={c.id} size="sm" photoUrl={c.photo_url} />
                           </span>
                           {c.name.split(' ')[0]}
                           {on && (
@@ -300,7 +301,13 @@ export function ParentHome() {
               return (
                 <Card key={child.id} className="p-4">
                   <div className="flex items-center gap-3.5">
-                    <Avatar name={child.name} id={child.id} size="lg" />
+                    <ChildPhoto
+                      childId={child.id}
+                      name={child.name}
+                      photoUrl={child.photo_url}
+                      endpoint="/api/parent/children"
+                      invalidate={[['parent', 'children']]}
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[1.05rem] font-extrabold text-ink-900">
                         {child.name}

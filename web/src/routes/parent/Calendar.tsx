@@ -132,7 +132,7 @@ export function ParentCalendar() {
                 }`}
               >
                 <span className={on ? '' : 'opacity-45 grayscale'}>
-                  <Avatar name={c.name} id={c.id} size="sm" />
+                  <Avatar name={c.name} id={c.id} size="sm" photoUrl={c.photo_url} />
                 </span>
                 {c.name.split(' ')[0]}
               </button>

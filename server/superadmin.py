@@ -588,9 +588,14 @@ def delete_organization(org_id):
 
         counts = {label: db.execute(sql, (org_id,)).fetchone()['n']
                   for label, sql in _INVENTORY}
-        paths = [row['storage_path'] for row in db.execute(
-            "SELECT storage_path FROM photos WHERE organization_id = %s", (org_id,)
-        ).fetchall()]
+        # Daily photos and children's profile photos live in the same bucket,
+        # and both cascade away with the organization's rows.
+        paths = [row['storage_path'] for row in db.execute("""
+            SELECT storage_path FROM photos WHERE organization_id = %s
+            UNION ALL
+            SELECT photo_path FROM children
+             WHERE organization_id = %s AND photo_path IS NOT NULL
+        """, (org_id, org_id)).fetchall()]
 
         db.execute("""
             INSERT INTO organization_deletions

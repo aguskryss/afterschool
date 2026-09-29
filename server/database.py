@@ -376,6 +376,11 @@ def init_db():
     cur.execute("ALTER TABLE children ADD COLUMN IF NOT EXISTS roster_flag TEXT")
     cur.execute("ALTER TABLE children ADD COLUMN IF NOT EXISTS withdrawn_at TIMESTAMP")
     cur.execute("ALTER TABLE children ADD COLUMN IF NOT EXISTS withdrawn_reason TEXT")
+    # A profile photo, uploaded by the admin or by the child's own parent
+    # (sql/69). The object path in the PRIVATE photos bucket, never a URL:
+    # readers sign it per response (photo_storage.signed_urls). NULL means no
+    # photo, and every screen falls back to the initials avatar.
+    cur.execute("ALTER TABLE children ADD COLUMN IF NOT EXISTS photo_path TEXT")
     _add_check(cur, 'children', 'children_sex_check',
                "sex IS NULL OR sex IN ('M','F')")
     # 'dropoff' is a parent dropping the child at the JCC; 'bus' is the JCC bus

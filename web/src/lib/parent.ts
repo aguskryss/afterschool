@@ -23,6 +23,8 @@ export type Child = {
   absence_exceptions: unknown[]
   recurring_absences: unknown[]
   location: ChildLocation | null
+  /** Signed, short-lived; null when no profile photo has been set. */
+  photo_url: string | null
 }
 
 export const WEEKDAYS = [

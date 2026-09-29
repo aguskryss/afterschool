@@ -1627,7 +1627,7 @@ def parent_get_children():
                     })
 
     rows = db.execute(f"""
-        SELECT c.id, c.name, s.name as school, c.service_type,
+        SELECT c.id, c.name, s.name as school, c.service_type, c.photo_path,
                COALESCE(
                  (SELECT json_agg(r.day_of_week ORDER BY CASE r.day_of_week
                     WHEN 'Monday' THEN 1 WHEN 'Tuesday' THEN 2 WHEN 'Wednesday' THEN 3
@@ -1703,10 +1703,11 @@ def parent_get_children():
             'absence_exceptions': sorted(exception_dates),
             'upcoming_absences': upcoming,
             'location': locations.get(child_id),
+            'photo_path': row['photo_path'],
         })
 
     db.close()
-    return jsonify(result)
+    return jsonify(attach_child_photo_urls(result))
 
 @app.route('/api/parent/absences', methods=['POST'])
 @jwt_required()
@@ -2246,7 +2247,7 @@ def counselor_get_roster():
     ROSTER_COLUMNS = """
         SELECT c.id, c.name, c.service_type, c.release_group,
                c.grade_label, c.grade_num, c.allergies, c.notes,
-               r.dismissal_time,
+               c.photo_path, r.dismissal_time,
                u.name AS parent_name, u.email AS parent_email
           FROM children c
           JOIN users u ON c.parent_id = u.id
@@ -2286,6 +2287,9 @@ def counselor_get_roster():
             # computable destination yet — never a guess (daily_routing.py).
             'dismiss_to': dest.get('label'),
             'dismiss_kind': dest.get('kind'),
+            # Swapped for a signed photo_url once the whole roster is built,
+            # so every school is signed in one call (attach_child_photo_urls).
+            'photo_path': ch['photo_path'],
         }
 
     for school in schools:
@@ -2341,6 +2345,9 @@ def counselor_get_roster():
             entry['times'] = {k: v for k, v in by_child.items() if k in ids}
 
     db.close()
+    attach_child_photo_urls(
+        ch for entry in result for ch in entry['attending'] + entry['absent']
+    )
     return jsonify(result)
 
 # ─── ADMIN ROUTES ───────────────────────────────────────────────────────────
@@ -3512,7 +3519,7 @@ def admin_get_children():
         rows = db.execute(f"""
             SELECT c.id, c.name, c.first_name, c.last_name,
                    c.grade_label, c.grade_num, c.active, c.service_type,
-                   c.arrival_mode, c.bus_rider, c.allergies,
+                   c.arrival_mode, c.bus_rider, c.allergies, c.photo_path,
                    c.withdrawn_at, c.withdrawn_reason,
                    s.id AS school_id, s.name AS school,
                    u.id AS parent_id, u.name AS parent_name, u.email AS parent_email,
@@ -3557,6 +3564,7 @@ def admin_get_children():
             child[field] = iso_utc(child[field])
         result.append(child)
 
+    attach_child_photo_urls(result)
     return jsonify({'date': date_str, 'day': day_name, 'children': result})
 
 
@@ -3579,7 +3587,7 @@ def admin_get_child(child_id):
             SELECT c.id, c.name, c.first_name, c.last_name,
                    c.grade_label, c.grade_num, c.active, c.service_type,
                    c.release_group, c.arrival_mode, c.bus_rider, c.allergies,
-                   c.notes, c.dob, c.sex, c.roster_flag,
+                   c.notes, c.dob, c.sex, c.roster_flag, c.photo_path,
                    c.withdrawn_at, c.withdrawn_reason, c.created_at,
                    s.id AS school_id, s.name AS school,
                    u.id AS parent_id, u.name AS parent_name,
@@ -3684,6 +3692,7 @@ def admin_get_child(child_id):
         contact['invited_at'] = iso_utc(account['invited_at']) if account else None
         contact['last_login_at'] = iso_utc(account['last_login_at']) if account else None
     child['compliance'] = _as_list(child['compliance'])
+    attach_child_photo_urls([child])
     child['active'] = bool(child['active'])
     child['on_bus'] = bool(child['on_bus'])
     child['status'] = _child_status(child, day_name, absent_ids)
@@ -4170,10 +4179,173 @@ def admin_delete_child(child_id):
     if not require_admin():
         return jsonify({'error': 'Unauthorized'}), 403
     db = get_db()
-    db.execute("DELETE FROM children WHERE id = %s", (child_id,))
+    row = db.execute(
+        "DELETE FROM children WHERE id = %s RETURNING photo_path", (child_id,)
+    ).fetchone()
     db.commit()
     db.close()
+    if row and row['photo_path']:
+        photo_storage.delete(row['photo_path'])
     return jsonify({'message': 'Child deleted'})
+
+
+# ─── CHILD PROFILE PHOTOS ───────────────────────────────────────────────────
+# One photo per child (children.photo_path, sql/69), shown in place of the
+# initials avatar — most usefully on the pickup screen, where the counselor
+# handing a child over sees whose face they are looking for. Uploaded by the
+# admin from the child's profile or by the child's own parent from their
+# portal. Core, not the `photos` module: recognising a child at the door is
+# not something a JCC should have to buy daily photos to get.
+#
+# Same private bucket as the daily photos, so it is read the same way: the
+# path is signed per response, never stored or handed out as a URL.
+
+# Avatars are drawn from signed URLs inside lists a screen can keep open all
+# afternoon (the pickup screen, the roster). An hour would break every face on
+# a screen left open past it; twelve covers a program day.
+CHILD_PHOTO_URL_SECONDS = 12 * 3600
+
+# No HEIC: unlike the daily photos this is drawn in an <img> on every screen,
+# and only Safari renders HEIC. The client re-encodes to JPEG before sending
+# anyway; this is what stops a file that skipped it.
+CHILD_PHOTO_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
+
+
+def attach_child_photo_urls(children, path_key='photo_path'):
+    """Replace each dict's `photo_path` with a signed `photo_url`, in place.
+
+    One Supabase call for the whole list (photo_storage.signed_urls), and none
+    at all when no child in it has a photo — which is every organization until
+    someone uploads the first one.
+    """
+    children = list(children)
+    paths = [c.get(path_key) for c in children if c.get(path_key)]
+    urls = photo_storage.signed_urls(paths, CHILD_PHOTO_URL_SECONDS) if paths else {}
+    for c in children:
+        path = c.pop(path_key, None)
+        c['photo_url'] = urls.get(path) if path else None
+    return children
+
+
+def _replace_child_photo(child_id):
+    """Store the uploaded file as this child's photo. Caller checks access."""
+    if not photo_storage.is_configured():
+        return jsonify({'error': 'Photo storage is not configured yet.'}), 503
+    file = request.files.get('file')
+    if not file or not file.filename:
+        return jsonify({'error': 'No file uploaded'}), 400
+    ext = (file.filename.rsplit('.', 1)[-1] if '.' in file.filename else '').lower()
+    if ext not in CHILD_PHOTO_EXTENSIONS:
+        return jsonify({'error': 'Please pick a JPG, PNG or WebP photo.'}), 400
+    data = file.read()
+    if not data:
+        return jsonify({'error': 'That file is empty'}), 400
+    if len(data) > MAX_PHOTO_BYTES:
+        return jsonify({'error': 'That photo is too large. Please pick one under 8 MB.'}), 413
+
+    db = get_db()
+    try:
+        # Before touching storage, so a child that does not exist (or is in
+        # another JCC, which RLS makes the same thing) costs no upload.
+        if not db.execute("SELECT 1 FROM children WHERE id = %s", (child_id,)).fetchone():
+            return jsonify({'error': 'Child not found'}), 404
+    finally:
+        db.close()
+
+    try:
+        path = photo_storage.build_path(current_org_id(), 'profile', file.filename)
+        photo_storage.upload(path, data, file.filename)
+    except photo_storage.StorageError as e:
+        print(f'[ERROR] child photo upload: {e}')
+        return jsonify({'error': 'The photo could not be saved. Please try again.'}), 502
+
+    db = get_db()
+    try:
+        row = db.execute("""
+            UPDATE children c SET photo_path = %s
+              FROM (SELECT photo_path AS old FROM children WHERE id = %s) prev
+             WHERE c.id = %s
+         RETURNING prev.old
+        """, (path, child_id, child_id)).fetchone()
+        db.commit()
+    except Exception:
+        photo_storage.delete(path)
+        raise
+    finally:
+        db.close()
+    if not row:
+        photo_storage.delete(path)
+        return jsonify({'error': 'Child not found'}), 404
+    # Only after the row points at the new object: failing here leaves an
+    # orphaned old photo, never a child pointing at nothing.
+    if row['old']:
+        photo_storage.delete(row['old'])
+    return jsonify({
+        'photo_url': photo_storage.signed_url(path, CHILD_PHOTO_URL_SECONDS),
+    })
+
+
+def _remove_child_photo(child_id):
+    db = get_db()
+    try:
+        row = db.execute("""
+            UPDATE children c SET photo_path = NULL
+              FROM (SELECT photo_path AS old FROM children WHERE id = %s) prev
+             WHERE c.id = %s
+         RETURNING prev.old
+        """, (child_id, child_id)).fetchone()
+        db.commit()
+    finally:
+        db.close()
+    if not row:
+        return jsonify({'error': 'Child not found'}), 404
+    if row['old']:
+        photo_storage.delete(row['old'])
+    return jsonify({'photo_url': None})
+
+
+@app.route('/api/admin/children/<int:child_id>/photo', methods=['PUT'])
+@jwt_required()
+def admin_set_child_photo(child_id):
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    return _replace_child_photo(child_id)
+
+
+@app.route('/api/admin/children/<int:child_id>/photo', methods=['DELETE'])
+@jwt_required()
+def admin_remove_child_photo(child_id):
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    return _remove_child_photo(child_id)
+
+
+def _parent_may_edit_photo(child_id):
+    """The same ownership rule every other parent write uses. RLS keeps a
+    child in another JCC out of reach; this keeps another family's out."""
+    if get_jwt().get('role') != 'parent':
+        return False
+    db = get_db()
+    try:
+        return parent_owns_child(db, get_jwt_identity(), child_id)
+    finally:
+        db.close()
+
+
+@app.route('/api/parent/children/<int:child_id>/photo', methods=['PUT'])
+@jwt_required()
+def parent_set_child_photo(child_id):
+    if not _parent_may_edit_photo(child_id):
+        return jsonify({'error': 'Unauthorized'}), 403
+    return _replace_child_photo(child_id)
+
+
+@app.route('/api/parent/children/<int:child_id>/photo', methods=['DELETE'])
+@jwt_required()
+def parent_remove_child_photo(child_id):
+    if not _parent_may_edit_photo(child_id):
+        return jsonify({'error': 'Unauthorized'}), 403
+    return _remove_child_photo(child_id)
 
 
 # ─── PRIVATE ADMIN NOTES ────────────────────────────────────────────────────

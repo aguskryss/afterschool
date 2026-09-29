@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react'
 
 /* ── Button ──────────────────────────────────────────────────────────── */
@@ -92,15 +93,25 @@ export function colorForId(id: number): string {
   return KID_COLORS[id % KID_COLORS.length]
 }
 
+/**
+ * The child's profile photo when there is one (children.photo_path, signed by
+ * the server as `photo_url`), the coloured initials otherwise — and also when
+ * the photo fails to load, e.g. a signed URL that expired on a screen left
+ * open overnight. A broken-image icon where a face should be is worse than
+ * the initials it replaced.
+ */
 export function Avatar({
   name,
   id,
   size = 'md',
+  photoUrl,
 }: {
   name: string
   id: number
   size?: 'sm' | 'md' | 'lg'
+  photoUrl?: string | null
 }) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const initials = name
     .split(' ')
     .filter(Boolean)
@@ -113,6 +124,19 @@ export function Avatar({
       : size === 'sm'
         ? 'size-9 text-xs'
         : 'size-11 text-sm'
+  if (photoUrl && failedUrl !== photoUrl) {
+    return (
+      <img
+        src={photoUrl}
+        alt=""
+        aria-hidden
+        loading="lazy"
+        onError={() => setFailedUrl(photoUrl)}
+        className={`shrink-0 rounded-full object-cover ${dims}`}
+        style={{ background: colorForId(id) }}
+      />
+    )
+  }
   return (
     <span
       aria-hidden

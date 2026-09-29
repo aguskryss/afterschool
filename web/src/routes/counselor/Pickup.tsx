@@ -186,7 +186,7 @@ export function PickupRelease() {
                           : 'hover:bg-canvas-100 active:bg-canvas-200'
                       }`}
                     >
-                      <Avatar name={child.name} id={child.id} />
+                      <Avatar name={child.name} id={child.id} photoUrl={child.photo_url} />
                       <div className="min-w-0 flex-1">
                         <p className="flex items-center gap-1.5 truncate font-bold text-ink-900">
                           {child.name}
@@ -244,7 +244,7 @@ export function PickupRelease() {
                       key={child.id}
                       className="flex items-center gap-3 bg-canvas-50 px-4 py-3"
                     >
-                      <Avatar name={child.name} id={child.id} />
+                      <Avatar name={child.name} id={child.id} photoUrl={child.photo_url} />
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-bold text-ink-500">
                           {child.name}

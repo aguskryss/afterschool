@@ -158,7 +158,7 @@ export function CounselorRoster() {
                               : 'hover:bg-canvas-100'
                         }`}
                       >
-                        <Avatar name={child.name} id={child.id} />
+                        <Avatar name={child.name} id={child.id} photoUrl={child.photo_url} />
                         <div className="min-w-0 flex-1">
                           {/* No allergy flag on a check-in list — see the note
                               in SchoolAttendance. */}

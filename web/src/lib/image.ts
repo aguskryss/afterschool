@@ -85,3 +85,51 @@ export async function downscale(rawFile: File): Promise<File> {
     return file
   }
 }
+
+/**
+ * A child's profile photo: centre-cropped to a square and always re-encoded as
+ * a small JPEG.
+ *
+ * Unlike a gallery photo this is drawn on every roster row and in every pickup
+ * list, dozens at a time, so it is cut to the size it is shown at (with room
+ * for a retina screen) rather than 1600px. And it is always JPEG: the server
+ * refuses HEIC for avatars, since only Safari can draw one in an <img>.
+ *
+ * Throws only when the photo can't be read at all — there is no original to
+ * fall back on that the server would accept.
+ */
+const AVATAR_EDGE = 480
+
+export async function avatarPhoto(rawFile: File): Promise<File> {
+  const file = await toJpegIfHeic(rawFile)
+  try {
+    const bitmap = await createImageBitmap(file)
+    const side = Math.min(bitmap.width, bitmap.height)
+    const edge = Math.min(AVATAR_EDGE, side)
+    const canvas = document.createElement('canvas')
+    canvas.width = edge
+    canvas.height = edge
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('no canvas')
+    ctx.drawImage(
+      bitmap,
+      (bitmap.width - side) / 2,
+      (bitmap.height - side) / 2,
+      side,
+      side,
+      0,
+      0,
+      edge,
+      edge,
+    )
+    bitmap.close()
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, 'image/jpeg', QUALITY),
+    )
+    if (!blob) throw new Error('no blob')
+    return new File([blob], 'photo.jpg', { type: 'image/jpeg' })
+  } catch {
+    if (/^image\/(jpeg|png|webp)$/.test(file.type)) return file
+    throw new Error('That photo could not be read. Please try a JPG or PNG.')
+  }
+}

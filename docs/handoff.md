@@ -6,6 +6,59 @@ anteriores quedan abajo, no se borran.
 
 ---
 
+## Sesión del 2026-09-29 — foto de perfil de cada chico
+
+Pregunta: si se puede subir una foto del chico en su propia página. No se
+podía — `Avatar` eran solo iniciales. Decisión: la cargan **el admin y los
+padres**.
+
+### `children.photo_path` — sql/69 (rollback sql/70)
+
+Una columna, nullable, espejada en `init_db()`. Guarda el **path** del objeto
+en el bucket privado de fotos (`org-<id>/profile/<uuid>.jpg`), nunca una URL:
+se firma por respuesta, en bulk, con `photo_storage.signed_urls` — una sola
+llamada a Supabase por lista, y ninguna si ningún chico tiene foto. Las URLs
+duran 12 h (`CHILD_PHOTO_URL_SECONDS`) porque Pickup y el roster quedan
+abiertos toda la tarde; si una vence igual, `Avatar` vuelve a las iniciales.
+
+No es una fila de `photos`: eso es el módulo de fotos diarias (tags,
+notificaciones, galería). La foto de perfil es **core** — reconocer al chico
+en la puerta no debería depender de haber comprado `photos`.
+
+### Rutas (server/app.py, sección CHILD PROFILE PHOTOS)
+
+- `PUT|DELETE /api/admin/children/<id>/photo` — `require_admin()`.
+- `PUT|DELETE /api/parent/children/<id>/photo` — `parent_owns_child()`
+  (Contact #1 o un Contact #2 vinculado). RLS separa JCCs; ese chequeo separa
+  familias.
+- Solo JPG/PNG/WebP (sin HEIC: se dibuja en `<img>` en todas las pantallas y
+  solo Safari renderiza HEIC). Tope `MAX_PHOTO_BYTES`.
+- Al reemplazar, se borra el objeto viejo **después** de que la fila apunta al
+  nuevo. Borrar un chico borra su foto. Borrar una organización guarda también
+  estos paths en `organization_deletions.photo_paths` (superadmin.py).
+- `photo_url` viaja en `/api/counselor/roster` (Pickup, Roster, School
+  attendance), `/api/admin/children` (lista y perfil) y `/api/parent/children`.
+
+### Frontend
+
+- `Avatar` acepta `photoUrl`; sin foto o si falla la carga, iniciales.
+- `components/ChildPhoto.tsx`: el avatar grande con un botón de cámara. Sin
+  foto abre el picker; con foto, menú Cambiar / Quitar. Lo usan el perfil del
+  chico en admin y las cards de "My kids" del padre.
+- `lib/image.ts` → `avatarPhoto()`: HEIC→JPEG, recorte cuadrado centrado a
+  480px, siempre JPEG.
+- No se tocó: `counselor/Today` y `admin/Dashboard` (sus payloads vienen de
+  pickups, no del chico) — siguen con iniciales.
+
+### Verificado
+
+`py_compile`, `npx tsc -b`, `npm run build`, `test_module_access.py` y
+`test_no_legacy_portals.py` limpios. **No probado en vivo** (no había DB ni
+Supabase en esta sesión): falta subir una foto desde un perfil de admin y
+desde un padre, y confirmar que aparece en Pickup.
+
+---
+
 ## Sesión del 2026-09-11 — subir fotos en batch, y álbumes
 
 La directora preguntó si se puede subir fotos en batch en vez de una por

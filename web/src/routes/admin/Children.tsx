@@ -25,6 +25,7 @@ import {
   type ChildExtra,
 } from '@/components/people'
 import { Avatar, Button, Card, EmptyState, Field, Pill, Skeleton } from '@/components/ui'
+import { ChildPhoto } from '@/components/ChildPhoto'
 import {
   STATUS_LABEL,
   STATUS_TONE,
@@ -103,6 +104,8 @@ type Contact = {
 type Child = {
   id: number
   name: string
+  /** Signed, short-lived; null when no profile photo has been set. */
+  photo_url: string | null
   first_name: string | null
   last_name: string | null
   grade_label: string | null
@@ -295,7 +298,7 @@ export function AdminChildren() {
       value: sortName,
       render: (c) => (
         <span className="flex items-center gap-2.5">
-          <Avatar name={c.name} id={c.id} size="sm" />
+          <Avatar name={c.name} id={c.id} size="sm" photoUrl={c.photo_url} />
           <span className="font-bold text-ink-900">{c.name}</span>
         </span>
       ),
@@ -1821,7 +1824,13 @@ export function AdminChildProfile() {
       </Link>
 
       <div className="mb-6 flex flex-wrap items-center gap-4">
-        <Avatar name={c.name} id={c.id} size="lg" />
+        <ChildPhoto
+          childId={c.id}
+          name={c.name}
+          photoUrl={c.photo_url}
+          endpoint="/api/admin/children"
+          invalidate={[['admin', 'child', String(c.id)], ['admin', 'children']]}
+        />
         <div className="min-w-0">
           <h1 className="text-[1.6rem] leading-tight font-extrabold tracking-tight text-ink-900">
             {c.name}

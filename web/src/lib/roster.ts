@@ -28,6 +28,8 @@ export type RosterChild = {
    *  an org without daily_ops, or when nothing is computable yet. */
   dismiss_to?: string | null
   dismiss_kind?: 'class' | 'parents' | 'care' | 'unknown' | null
+  /** The child's profile photo, signed; null when none has been set. */
+  photo_url?: string | null
 }
 
 export type RosterSchool = {
