@@ -6,6 +6,56 @@ anteriores quedan abajo, no se borran.
 
 ---
 
+## Sesión del 2026-09-29 (b) — el check de "here" que se desmarca solo
+
+Reporte: en My day, marcan a un chico presente en una clase y "se desmarca
+solo"; al cambiar de pantalla y volver, aparece como si nunca se hubiera
+marcado.
+
+### Diagnóstico (contra la base real, solo lecturas)
+
+- Las marcas se guardan: 152 filas en `block_checks` hoy, 6 counselors.
+- Simulé el GET de cada counselor que marcó hoy (mismos slots que
+  `_my_slots`): **todo lo escrito vuelve**, 0 perdidos. Lectura y escritura
+  están acotadas por el mismo conjunto de bloques.
+- Conclusión: lo que "se desmarca" es un POST que **falló**, y la pantalla lo
+  revertía en silencio (`onError` restauraba un snapshot de todo el bloque, sin
+  mensaje, borrando además los toques posteriores).
+- Causa probable del fallo, **sin confirmar** (no hubo acceso a logs de
+  Render): `ThreadedConnectionPool.getconn()` no espera — con las 5
+  conexiones ocupadas tira `PoolError` al instante → 500.
+
+### Arreglos
+
+- `server/database.py` → `_checkout()`: espera hasta `POOL_WAIT_SECONDS`
+  (10 s) por una conexión libre, con backoff, en vez de fallar al instante.
+- `web/src/lib/blockChecks.ts`:
+  - Todos los toques de una fecha van en un `scope` de react-query: se mandan
+    **en serie y en orden**, lo que hace seguros los reintentos (`retry: 3`;
+    las tres escrituras son idempotentes).
+  - Un fallo afecta solo a los chicos de ese toque. Un "here" que no se pudo
+    guardar queda en la fila como `failed` ("Not saved — tap again", en rojo)
+    en vez de desaparecer; un undo o routed fallido restaura solo esos chicos.
+  - Se refetchea **una vez**, cuando termina el último toque en cola, no
+    después de cada uno (el refetch por toque pisaba al siguiente todavía en
+    vuelo y lo destildaba un instante).
+  - Los toques en vuelo y los fallidos se re-aplican sobre cualquier refetch
+    (`pendingByDate`), así un remount o un focus no los pisa.
+  - `isChecked()` en vez de `.has()`: una entrada `failed` no cuenta.
+- `MyDay.tsx`: fila en rojo para el toque no guardado y aviso a nivel bloque
+  para un undo/routed fallido.
+
+### Verificado
+
+`npx tsc -b`, `npm run build`, `py_compile`, `test_module_access.py`, y
+`_checkout()` probado contra un pool falso (espera y consigue; pasado el
+límite re-lanza `PoolError`). **Falta**: mirar en los logs de Render de hoy
+3–5pm si hubo `connection pool exhausted` / 500 en
+`/api/counselor/block-checks`, y que un counselor confirme mañana que ya no
+se desmarca.
+
+---
+
 ## Sesión del 2026-09-29 — foto de perfil de cada chico
 
 Pregunta: si se puede subir una foto del chico en su propia página. No se

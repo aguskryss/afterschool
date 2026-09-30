@@ -141,6 +141,34 @@ def _apply_organization(conn, organization_id, is_superadmin=False):
         )
 
 
+# How long a request waits for a free connection before giving up.
+POOL_WAIT_SECONDS = 10
+
+
+def _checkout(pool):
+    """pool.getconn(), but waiting for a connection instead of failing.
+
+    ThreadedConnectionPool does not queue: with all maxconn connections out,
+    getconn() raises PoolError at once. With maxconn=5 and --threads 64, five
+    requests in flight at the same moment — a few iPads refreshing My day
+    while a counselor taps a child "here" — was enough to turn that tap into
+    a 500, which the screen showed as the check quietly un-ticking itself.
+    Each request holds its connection for a fraction of a second, so a short
+    wait almost always gets one; past POOL_WAIT_SECONDS the database is
+    genuinely stuck and the real error is raised.
+    """
+    deadline = time.monotonic() + POOL_WAIT_SECONDS
+    delay = 0.02
+    while True:
+        try:
+            return pool.getconn()
+        except psycopg2.pool.PoolError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.25)
+
+
 def _get_pooled_connection(autocommit):
     """A checked-out connection, guaranteed live — or the caller finds out why
     it genuinely cannot get one.
@@ -169,7 +197,7 @@ def _get_pooled_connection(autocommit):
     pool = _get_pool()
     last_err = None
     for _ in range(6):
-        conn = pool.getconn()
+        conn = _checkout(pool)
         try:
             conn.autocommit = autocommit
             _apply_organization(conn, *_resolve_organization())

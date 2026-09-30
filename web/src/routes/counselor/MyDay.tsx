@@ -15,6 +15,7 @@ import {
 import { api } from '@/lib/api'
 import {
   checkKey,
+  isChecked,
   useBlockChecks,
   useSetBlockChecks,
   useSetRouted,
@@ -497,7 +498,7 @@ function BlockPicker({
         // does not sit at "3 of 4" forever because the fourth left at 4:20.
         const expected = b.children.filter((c) => !c.absent && !c.released)
         const done = ref
-          ? expected.filter((c) => checks?.has(checkKey(ref, c.child_id))).length
+          ? expected.filter((c) => isChecked(checks, checkKey(ref, c.child_id))).length
           : 0
         const complete = expected.length > 0 && done === expected.length
         const isNow = i === nowIndex
@@ -570,7 +571,7 @@ function BlockContent({
 
   const expected = block.children.filter((c) => !c.absent && !c.released)
   const done = ref
-    ? expected.filter((c) => checks?.has(checkKey(ref, c.child_id))).length
+    ? expected.filter((c) => isChecked(checks, checkKey(ref, c.child_id))).length
     : 0
 
   // What the tap means right now. During the block it is "here"; from half an
@@ -602,6 +603,17 @@ function BlockContent({
               ` · with ${block.with.map((w) => w.name).join(', ')}`}
           </p>
         </div>
+
+        {/* A "here" that failed already says so on its own row; an undo or a
+            route that failed has no row state of its own to show it in. */}
+        {(setChecks.isError || setRouted.isError) && (
+          <p
+            role="alert"
+            className="mt-2 rounded-xl bg-berry-50 px-3 py-2 text-[0.86rem] font-bold text-berry-700"
+          >
+            A tap didn't save — check the Wi-Fi and try it again.
+          </p>
+        )}
 
         {expected.length > 0 && (
           <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -686,7 +698,7 @@ function GroupCard({
   const expected = group.children.filter((c) => !c.absent && !c.released)
   const stateOf = (c: Child): CheckState | undefined =>
     ref ? checks?.get(checkKey(ref, c.child_id)) : undefined
-  const isOn = (c: Child) => Boolean(stateOf(c))
+  const isOn = (c: Child) => Boolean(stateOf(c) && !stateOf(c)?.failed)
   const done = expected.filter(isOn).length
   const complete = expected.length > 0 && done === expected.length
 
@@ -747,7 +759,10 @@ function GroupCard({
       <ul>
         {group.children.map((child) => {
           const state = stateOf(child)
-          const on = Boolean(state)
+          // A tap the server never took: not "here", but not silently blank
+          // either — the counselor has to know to tap again.
+          const failed = Boolean(state?.failed)
+          const on = Boolean(state) && !failed
           const routed = Boolean(state?.routed_at)
           const allergies = hasAllergy(child.allergies)
             ? child.allergies!.trim()
@@ -781,7 +796,9 @@ function GroupCard({
                     className={`grid size-12 shrink-0 place-items-center rounded-2xl border-2 transition-colors disabled:opacity-40 ${
                       on
                         ? 'border-leaf-500 bg-leaf-500 text-white'
-                        : 'border-canvas-200 bg-white text-transparent'
+                        : failed
+                          ? 'border-berry-500 bg-berry-50 text-berry-500'
+                          : 'border-canvas-200 bg-white text-transparent'
                     }`}
                   >
                     <Check className="size-6" strokeWidth={3} />
@@ -821,6 +838,10 @@ function GroupCard({
                     <p className="text-[0.78rem] font-extrabold text-ink-400">
                       Picked up{child.released_at ? ` · ${clockFromIso(child.released_at)}` : ''}
                       {' — not expected here anymore'}
+                    </p>
+                  ) : failed ? (
+                    <p role="alert" className="text-[0.78rem] font-extrabold text-berry-600">
+                      Not saved — tap again
                     </p>
                   ) : (
                     on && (
