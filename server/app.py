@@ -1599,32 +1599,15 @@ def parent_get_children():
     # safe) for every organization without the module, or outside the 3-6pm
     # window the program actually runs in.
     locations: dict[int, dict] = {}
-    today_day = DOW_NAMES[today.weekday()]
-    if module_on('daily_ops', db) and today_day in daily_routing.WEEKDAYS:
-        now_time = now_for_org(db).time()
-        current_block = daily_routing.block_of(now_time)
-        plan, _by_id, _rooms, _absent, released = _plan_for_day(db, today_day, today)
-        for session in plan['classes']:
-            start, end = session.get('start_time'), session.get('end_time')
-            if start and end and start <= now_time < end:
-                for entry in session['children']:
-                    # A parent who already came and went should not be told
-                    # their child is "in the Gym now" from an old plan.
-                    if entry['child_id'] in released:
-                        continue
-                    locations[entry['child_id']] = {
-                        'kind': 'class', 'name': session['name'],
-                    }
-        if current_block:
-            for group in plan['care']:
-                if group['time_block'] != current_block or not group['room_name']:
-                    continue
-                for entry in group['children']:
-                    if entry['child_id'] in released:
-                        continue
-                    locations.setdefault(entry['child_id'], {
-                        'kind': 'care', 'name': group['room_name'],
-                    })
+    if module_on('daily_ops', db):
+        locations, released = _child_locations_at(db, today, now_for_org(db).time())
+        # A parent who already came and went should not be told their child
+        # is "in the Gym now" from an old plan.
+        for child_id in released:
+            locations.pop(child_id, None)
+        # The parent card has only ever shown the class or room name.
+        for loc in locations.values():
+            loc.pop('location', None)
 
     rows = db.execute(f"""
         SELECT c.id, c.name, s.name as school, c.service_type, c.photo_path,
@@ -7067,6 +7050,44 @@ _ENGINE_CLASS_COLUMNS = ('id, name, day_of_week, start_time, end_time, '
                          'location, capacity')
 
 
+def _child_locations_at(db, on_date, moment):
+    """Where the routing engine puts each child at one clock time on one date.
+
+    Returns `({child_id: {'kind': 'class'|'care', 'name', 'location'}},
+    released)`, where `released` is _plan_for_day's {child_id: checked_out_at}
+    for the date — the caller decides what a release means for its screen.
+    A class in session wins over the care block it eats into, which is the
+    `partial` bold of the Care sheet read the other way round. Empty outside
+    the 3-6pm blocks and on a weekday the program doesn't run.
+
+    Callers check the daily_ops module first: without it there are no classes
+    or care rules, and the plan is empty anyway.
+    """
+    day = on_date.strftime('%A')
+    if day not in daily_routing.WEEKDAYS:
+        return {}, {}
+    plan, _by_id, _rooms, _absent, released = _plan_for_day(db, day, on_date)
+    locations: dict[int, dict] = {}
+    for session in plan['classes']:
+        start, end = session.get('start_time'), session.get('end_time')
+        if start and end and start <= moment < end:
+            for entry in session['children']:
+                locations[entry['child_id']] = {
+                    'kind': 'class', 'name': session['name'],
+                    'location': session.get('location'),
+                }
+    current_block = daily_routing.block_of(moment)
+    if current_block:
+        for group in plan['care']:
+            if group['time_block'] != current_block or not group['room_name']:
+                continue
+            for entry in group['children']:
+                locations.setdefault(entry['child_id'], {
+                    'kind': 'care', 'name': group['room_name'], 'location': None,
+                })
+    return locations, released
+
+
 def _plan_for_day(db, day, on_date=None):
     """Run the routing engine over one weekday. Returns its plan, plus lookups.
 
@@ -8319,6 +8340,22 @@ def _emergency_check_detail(db, check):
                                  WHERE check_id = %s)
         """, (date_str, check['id'])).fetchall()
         children.extend(dict(r) for r in late)
+
+    # Where each child should be, per the routing engine: the class or care
+    # room they are scheduled into at that hour. Now, while the check is open —
+    # that is where someone goes looking. When it started, for a closed one, so
+    # the drill record reads the way the afternoon looked at the time.
+    locations = {}
+    if module_on('daily_ops', db):
+        if check['ended_at'] is None:
+            moment = now_for_org(db)
+        else:
+            moment = check['started_at'].replace(tzinfo=timezone.utc).astimezone(
+                now_for_org(db).tzinfo)
+        locations, _released = _child_locations_at(
+            db, check['check_date'], moment.time())
+    for c in children:
+        c['group'] = locations.get(c['child_id'])
 
     children.sort(key=lambda c: (c['school'] or '', c['name'] or ''))
     attach_child_photo_urls(children)

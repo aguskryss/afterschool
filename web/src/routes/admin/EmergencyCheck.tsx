@@ -6,12 +6,20 @@ import { readSession } from '@/lib/auth'
 import { confirmAction, notifyError } from '@/lib/confirm'
 import { Avatar, Button, Card, EmptyState, Field, Pill, Skeleton } from '@/components/ui'
 
+/**
+ * Where the routing engine has the child at that hour — a class, or the care
+ * room they wait in. Null without daily_ops, outside the 3-6pm blocks, or for
+ * a child the plan has nowhere for.
+ */
+type Group = { kind: 'class' | 'care'; name: string; location: string | null }
+
 type CheckChild = {
   child_id: number
   name: string
   grade: string | null
   school: string
   photo_url: string | null
+  group: Group | null
   /** Checked in after the check started, so not in its snapshot. */
   late: boolean
   accounted_at: string | null
@@ -50,6 +58,9 @@ type PastCheck = {
 type Overview = { active: Check | null; recent: PastCheck[] }
 
 const KEY = ['admin', 'emergency'] as const
+
+const groupLabel = (g: Group) =>
+  `${g.kind === 'class' ? 'Class' : 'Care'} · ${g.name}${g.location ? ` (${g.location})` : ''}`
 
 const time = (iso: string) =>
   new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
@@ -128,6 +139,11 @@ function ChildRow({
         <Avatar name={child.name} id={child.child_id} photoUrl={child.photo_url} />
         <div className="min-w-0 flex-1">
           <p className="truncate font-extrabold text-ink-900">{child.name}</p>
+          {child.group && (
+            <p className="truncate text-[0.85rem] font-bold text-sky-700">
+              {groupLabel(child.group)}
+            </p>
+          )}
           <p className="truncate text-[0.82rem] font-semibold text-ink-500">
             {child.grade ? `Grade ${child.grade} · ` : ''}
             {child.school}
@@ -172,11 +188,23 @@ function ChildList({
   const shown = check.children.filter(
     (c) =>
       (!onlyMissing || (!c.accounted_at && !c.released_at)) &&
-      (!q || c.name.toLowerCase().includes(q)),
+      (!q ||
+        c.name.toLowerCase().includes(q) ||
+        !!c.group?.name.toLowerCase().includes(q)),
   )
-  const bySchool = new Map<string, CheckChild[]>()
-  for (const c of shown) {
-    bySchool.set(c.school, [...(bySchool.get(c.school) ?? []), c])
+  // By group when the plan places anyone — that is where an adult goes to
+  // look — and by school otherwise, which is all a JCC without daily_ops has.
+  // Classes first, then care rooms, then whoever the plan has nowhere for.
+  const byGroup = check.children.some((c) => c.group)
+  const sectionOf = (c: CheckChild) =>
+    byGroup ? (c.group ? groupLabel(c.group) : 'No group at this hour') : c.school
+  const rank = (c: CheckChild) =>
+    !byGroup ? 0 : c.group?.kind === 'class' ? 0 : c.group?.kind === 'care' ? 1 : 2
+  const sections = new Map<string, CheckChild[]>()
+  for (const c of [...shown].sort(
+    (a, b) => rank(a) - rank(b) || sectionOf(a).localeCompare(sectionOf(b)),
+  )) {
+    sections.set(sectionOf(c), [...(sections.get(sectionOf(c)) ?? []), c])
   }
 
   return (
@@ -187,7 +215,7 @@ function ChildList({
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Find a child…"
+            placeholder="Find a child or group…"
             className="h-11 w-full rounded-full border-2 border-canvas-200 bg-white pr-4 pl-10 text-[0.95rem] font-medium text-ink-900 outline-none focus:border-sky-500"
           />
         </div>
@@ -217,10 +245,10 @@ function ChildList({
           </p>
         </Card>
       ) : (
-        [...bySchool.entries()].map(([school, kids]) => (
-          <section key={school} className="mb-6">
+        [...sections.entries()].map(([section, kids]) => (
+          <section key={section} className="mb-6">
             <h2 className="mb-2 text-[0.8rem] font-extrabold tracking-wide text-ink-400 uppercase">
-              {school} · {kids.length}
+              {section} · {kids.length}
             </h2>
             <ul className="grid gap-2 md:grid-cols-2 2xl:grid-cols-3">
               {kids.map((c) => (

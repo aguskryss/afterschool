@@ -49,6 +49,16 @@ por si el teléfono pierde la conexión al salir del edificio.
 junto a Live board. Toques optimistas; un toque que falla avisa "not saved —
 tap again". Filtro "Missing / Everyone", búsqueda, agrupado por escuela.
 
+**Grupo de cada chico (mismo día, segundo pedido).** Con `daily_ops`, cada chico
+lleva `group` = la clase o sala de care donde el motor lo ubica: **ahora**
+mientras la verificación está abierta, a la hora de **inicio** para una cerrada.
+La lista se agrupa por grupo (clases, salas de care, "No group at this hour") y
+por escuela si nadie tiene grupo. La lógica "dónde está a tal hora" estaba
+inline en `parent_get_children`; se extrajo a `_child_locations_at(db, date,
+time)` y la usan las dos rutas (el payload del padre no cambia). Probada con un
+plan falso: clase gana sobre care mientras dura, care después, vacío fuera de
+3–6pm y en fin de semana.
+
 ### Verificado
 
 `py_compile`, `npx tsc -b`, `npm run build`, `test_module_access.py`,
