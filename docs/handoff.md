@@ -6,6 +6,59 @@ anteriores quedan abajo, no se borran.
 
 ---
 
+## Sesión del 2026-10-15 — verificación de emergencia (roll call)
+
+Pedido del admin: una pestaña para una verificación de emergencia, una lista
+completa donde marcar quién está. Decisiones (con el usuario): la lista son
+**los chicos en el edificio** (marcados in y sin `checked_out_at`, la misma
+definición que el `present` del headcount), y la verificación **queda guardada
+y compartida** — varios adultos marcan desde su dispositivo y queda registro.
+
+### `emergency_checks` + `emergency_check_children` — sql/71 (rollback sql/72)
+
+- Una fila por verificación; `ended_at IS NULL` es la abierta. Índice único
+  parcial `emergency_checks_one_open (organization_id) WHERE ended_at IS NULL`,
+  creado en `init_db()` después de tenancy (nombra `organization_id`). Dos
+  admins tocando "Start" a la vez caen en la misma lista (el segundo recibe 409
+  y la pantalla se une a la abierta).
+- **La lista es un snapshot**: al empezar se escriben los chicos en el edificio
+  (`in_snapshot = TRUE`). Un chico retirado a mitad de la verificación sigue en
+  la lista con "Went home HH:MM" en vez de desaparecer — si no, "se fue" y
+  "falta" se ven igual. Quien entra después de empezar aparece desde el set en
+  vivo ("Arrived after start") y recibe fila (`in_snapshot = FALSE`) al marcarlo.
+- Ambas en `TENANT_TABLES`.
+
+### Rutas (server/app.py, sección EMERGENCY CHECK) — módulo `check_in_out`
+
+- `GET /api/admin/emergency-check` — la abierta (con lista) + las últimas 30 cerradas.
+- `GET /api/admin/emergency-check/<id>` — una, completa (el registro del simulacro).
+- `POST /api/admin/emergency-check` — empieza (`note` opcional).
+- `POST /api/admin/emergency-check/<id>/children/<child_id>` `{accounted}` —
+  idempotente; si dos marcan al mismo chico queda el nombre del primero.
+- `POST /api/admin/emergency-check/<id>/end` — cierra.
+
+Bajo `check_in_out` porque "en el edificio" solo significa algo donde se
+registra el check-out. Cada cambio publica `emergency` en el bus de la
+organización; `/api/attendance/stream` ahora reenvía `headcount` **y**
+`emergency`, así la pantalla no abre un segundo SSE. Además pollea cada 10 s
+por si el teléfono pierde la conexión al salir del edificio.
+
+### Frontend
+
+`web/src/routes/admin/EmergencyCheck.tsx`, ruta `/emergency`, en Operations
+junto a Live board. Toques optimistas; un toque que falla avisa "not saved —
+tap again". Filtro "Missing / Everyone", búsqueda, agrupado por escuela.
+
+### Verificado
+
+`py_compile`, `npx tsc -b`, `npm run build`, `test_module_access.py`,
+`test_no_legacy_portals.py`. **No** corrido contra una base: el único
+`DATABASE_URL` disponible era el de Supabase. **Falta**: correr la migración
+(o bootear) en un entorno de prueba, empezar/marcar/cerrar una verificación
+con dos sesiones de admin, y `test_tenant_isolation.py`.
+
+---
+
 ## Sesión del 2026-09-29 (b) — el check de "here" que se desmarca solo
 
 Reporte: en My day, marcan a un chico presente en una clase y "se desmarca

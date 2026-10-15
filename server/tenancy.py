@@ -272,6 +272,10 @@ MODULE_ROUTES: tuple[tuple[str, str], ...] = (
     # school and with the children still outstanding named — so it sits behind
     # the same module rather than giving away what that one sells.
     ('/api/admin/operations', 'check_in_out'),
+    # The emergency roll call is taken over "in the building", which only
+    # means something where check-out is recorded: without it every child
+    # marked in at the gate stays "in the building" until midnight.
+    ('/api/admin/emergency-check', 'check_in_out'),
 
     # The authorized-person release. Longest-prefix resolution keeps
     # /api/counselor/pickup/ separate from /api/counselor/pickup-alerts above,
@@ -418,6 +422,11 @@ TENANT_TABLES = (
     # real child and the room they were standing in at a given hour — the same
     # isolation the roster needs, for the same reason.
     'block_checks',
+    # Emergency roll calls (sql/71). A row names a real child and whether they
+    # were found during an evacuation — the roster's isolation, for the
+    # roster's reason.
+    'emergency_checks',
+    'emergency_check_children',
 )
 
 # Deliberately global, not tenant-scoped:

@@ -57,6 +57,7 @@ import { AdminCareRules } from '@/routes/admin/CareRules'
 import { AdminStaffSchedule } from '@/routes/admin/StaffSchedule'
 import { AdminDailyBoard } from '@/routes/admin/DailyBoard'
 import { AdminLiveBoard } from '@/routes/admin/LiveBoard'
+import { AdminEmergencyCheck } from '@/routes/admin/EmergencyCheck'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -115,6 +116,7 @@ const ADMIN_ROUTES: [string, ReactNode][] = [
   ['/activities', <ModuleGuard module="activities"><AdminActivities /></ModuleGuard>],
   ['/activity-times', <ModuleGuard module="activities"><AdminActivitySchedules /></ModuleGuard>],
   ['/live-board', <ModuleGuard module="check_in_out"><AdminLiveBoard /></ModuleGuard>],
+  ['/emergency', <ModuleGuard module="check_in_out"><AdminEmergencyCheck /></ModuleGuard>],
   // One school's actual roster — names, who is already in, tap to mark
   // present or absent. Same screen the counselor uses at a school gate; see
   // CounselorSchoolAttendance's own doc comment for why sharing it is safe.

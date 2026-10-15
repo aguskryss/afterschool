@@ -8244,7 +8244,10 @@ def attendance_stream():
                 # being dropped silently: during carpool the bus is busy with
                 # pickup events, and a connection with no bytes on the wire is
                 # what hosted proxies idle-close.
-                if event.get('type') == 'headcount':
+                # `emergency` rides along: the roll-call screen already holds
+                # this stream for the releases that land mid-check, and a
+                # second stream would cost a second thread for the whole drill.
+                if event.get('type') in ('headcount', 'emergency'):
                     yield pickup_events.format_sse(event)
                 else:
                     yield pickup_events.format_sse({'type': 'heartbeat', 'data': {}})
@@ -8256,6 +8259,299 @@ def attendance_stream():
         'X-Accel-Buffering': 'no',
         'Connection': 'keep-alive',
     })
+
+
+# ─── EMERGENCY CHECK ────────────────────────────────────────────────────────
+# An evacuation or a drill, run as a roll call over every child in the building
+# when it starts (sql/71). Several adults tick children off from their own
+# devices; every tick is published on the organization's bus so the lists
+# agree, and the closed check stays on file as the drill record.
+#
+# The list is a snapshot, not a live query. A parent can still collect a child
+# mid-check, and a recomputed list would make that child disappear — the same
+# silence as "missing". So the snapshot keeps them, and the release time is
+# shown beside the name instead.
+
+def _in_building_child_ids_sql():
+    """Children marked in and not yet released on a date — the headcount's
+    `present`, kept as one definition so the two screens cannot disagree."""
+    return """
+        SELECT c.id
+          FROM children c
+          JOIN attendance_records ar
+            ON ar.child_id = c.id AND ar.attendance_date = %s
+         WHERE c.active = 1
+           AND ar.on_bus = 1
+           AND ar.checked_out_at IS NULL
+    """
+
+
+def _emergency_check_detail(db, check):
+    """One check with its whole list: the snapshot, plus — while it is open —
+    anyone who came in after it started and has not been accounted for yet."""
+    date_str = check['check_date'].strftime('%Y-%m-%d')
+    rows = db.execute("""
+        SELECT c.id AS child_id, c.name, c.grade_label AS grade,
+               c.photo_path, s.name AS school,
+               NOT ecc.in_snapshot AS late,
+               ecc.accounted_at, ua.name AS accounted_by,
+               ar.checked_out_at AS released_at
+          FROM emergency_check_children ecc
+          JOIN children c ON c.id = ecc.child_id
+          JOIN schools s ON s.id = c.school_id
+          LEFT JOIN users ua ON ua.id = ecc.accounted_by
+          LEFT JOIN attendance_records ar
+                 ON ar.child_id = c.id AND ar.attendance_date = %s
+         WHERE ecc.check_id = %s
+    """, (date_str, check['id'])).fetchall()
+    children = [dict(r) for r in rows]
+
+    if check['ended_at'] is None:
+        late = db.execute(f"""
+            SELECT c.id AS child_id, c.name, c.grade_label AS grade,
+                   c.photo_path, s.name AS school,
+                   TRUE AS late, NULL::timestamp AS accounted_at,
+                   NULL AS accounted_by, NULL::timestamp AS released_at
+              FROM children c
+              JOIN schools s ON s.id = c.school_id
+             WHERE c.id IN ({_in_building_child_ids_sql()})
+               AND c.id NOT IN (SELECT child_id FROM emergency_check_children
+                                 WHERE check_id = %s)
+        """, (date_str, check['id'])).fetchall()
+        children.extend(dict(r) for r in late)
+
+    children.sort(key=lambda c: (c['school'] or '', c['name'] or ''))
+    attach_child_photo_urls(children)
+    accounted = released = 0
+    for c in children:
+        if c['accounted_at']:
+            accounted += 1
+        elif c['released_at']:
+            released += 1
+        for key in ('accounted_at', 'released_at'):
+            c[key] = iso_utc(c[key])
+
+    return {
+        'id': check['id'],
+        'date': date_str,
+        'note': check['note'],
+        'started_at': iso_utc(check['started_at']),
+        'started_by': check['started_by_name'],
+        'ended_at': iso_utc(check['ended_at']),
+        'ended_by': check['ended_by_name'],
+        'total': len(children),
+        'accounted': accounted,
+        'released': released,
+        'missing': len(children) - accounted - released,
+        'children': children,
+    }
+
+
+_EMERGENCY_CHECK_SELECT = """
+    SELECT ec.id, ec.check_date, ec.note, ec.started_at, ec.ended_at,
+           us.name AS started_by_name, ue.name AS ended_by_name
+      FROM emergency_checks ec
+      LEFT JOIN users us ON us.id = ec.started_by
+      LEFT JOIN users ue ON ue.id = ec.ended_by
+"""
+
+
+def _publish_emergency(check_id):
+    """Tell every open roll-call screen in this JCC to re-read. A signal, not
+    the data: the list carries children's names, and a NOTIFY payload is
+    capped at 8000 bytes."""
+    try:
+        pickup_events.publish('emergency', {'check_id': check_id}, current_org_id())
+    except Exception as e:
+        # The tick is saved; the other screens catch up on their next poll.
+        print(f"[WARN] _publish_emergency: {e}")
+
+
+@app.route('/api/admin/emergency-check', methods=['GET'])
+@jwt_required()
+def admin_emergency_check():
+    """The open check, if any, and the recent closed ones."""
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    db = get_db()
+    try:
+        open_row = db.execute(
+            _EMERGENCY_CHECK_SELECT + " WHERE ec.ended_at IS NULL LIMIT 1"
+        ).fetchone()
+        active = _emergency_check_detail(db, open_row) if open_row else None
+        recent = db.execute("""
+            SELECT ec.id, ec.check_date, ec.note, ec.started_at, ec.ended_at,
+                   us.name AS started_by,
+                   COUNT(ecc.id) AS total,
+                   COUNT(ecc.accounted_at) AS accounted,
+                   COUNT(*) FILTER (WHERE ecc.accounted_at IS NULL
+                                      AND ar.checked_out_at IS NOT NULL)
+                       AS released
+              FROM emergency_checks ec
+              LEFT JOIN users us ON us.id = ec.started_by
+              LEFT JOIN emergency_check_children ecc ON ecc.check_id = ec.id
+              LEFT JOIN attendance_records ar
+                     ON ar.child_id = ecc.child_id
+                    AND ar.attendance_date = to_char(ec.check_date, 'YYYY-MM-DD')
+             WHERE ec.ended_at IS NOT NULL
+             GROUP BY ec.id, us.name
+             ORDER BY ec.started_at DESC
+             LIMIT 30
+        """).fetchall()
+    finally:
+        db.close()
+    history = []
+    for r in recent:
+        d = dict(r)
+        d['check_date'] = d['check_date'].strftime('%Y-%m-%d')
+        d['started_at'] = iso_utc(d['started_at'])
+        d['ended_at'] = iso_utc(d['ended_at'])
+        d['missing'] = d['total'] - d['accounted'] - d['released']
+        history.append(d)
+    return jsonify({'active': active, 'recent': history})
+
+
+@app.route('/api/admin/emergency-check/<int:check_id>', methods=['GET'])
+@jwt_required()
+def admin_emergency_check_detail(check_id):
+    """One check in full — the drill record, after the fact."""
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    db = get_db()
+    try:
+        row = db.execute(_EMERGENCY_CHECK_SELECT + " WHERE ec.id = %s",
+                         (check_id,)).fetchone()
+        if not row:
+            return jsonify({'error': 'Check not found'}), 404
+        return jsonify(_emergency_check_detail(db, row))
+    finally:
+        db.close()
+
+
+@app.route('/api/admin/emergency-check', methods=['POST'])
+@jwt_required()
+def admin_start_emergency_check():
+    """Start a roll call over everyone in the building right now."""
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    note = ((request.json or {}).get('note') or '').strip()[:200] or None
+    date_str = today_for_org()
+    db = get_db_transaction()
+    try:
+        check_id = db.execute("""
+            INSERT INTO emergency_checks (check_date, note, started_by)
+            VALUES (%s, %s, %s) RETURNING id
+        """, (date_str, note, _current_user_id())).fetchone()['id']
+        db.execute(f"""
+            INSERT INTO emergency_check_children (check_id, child_id)
+            SELECT %s, id FROM ({_in_building_child_ids_sql()}) AS present_now
+        """, (check_id, date_str))
+        db.commit()
+    except psycopg2.IntegrityError:
+        # emergency_checks_one_open: someone else started one a moment ago.
+        # Their list is the one everybody should be on.
+        db.rollback()
+        return jsonify({'error': 'An emergency check is already running'}), 409
+    except Exception as e:
+        db.rollback()
+        print(f"[ERROR] start_emergency_check: {e}")
+        return jsonify({'error': 'Could not start the check'}), 500
+    finally:
+        db.close()
+    print(f"[EMERGENCY] check {check_id} started by user {_current_user_id()}")
+    _publish_emergency(check_id)
+    return jsonify({'id': check_id}), 201
+
+
+@app.route('/api/admin/emergency-check/<int:check_id>/children/<int:child_id>',
+           methods=['POST'])
+@jwt_required()
+def admin_mark_emergency_child(check_id, child_id):
+    """Account for one child, or undo it. Idempotent both ways: two adults
+    finding the same child at once leaves the first one's name on it."""
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    accounted = bool((request.json or {}).get('accounted', True))
+    db = get_db_transaction()
+    try:
+        check = db.execute(
+            "SELECT check_date, ended_at FROM emergency_checks WHERE id = %s",
+            (check_id,),
+        ).fetchone()
+        if not check:
+            db.rollback()
+            return jsonify({'error': 'Check not found'}), 404
+        if check['ended_at'] is not None:
+            db.rollback()
+            return jsonify({'error': 'This check is already closed'}), 409
+
+        on_list = db.execute(
+            "SELECT 1 FROM emergency_check_children "
+            " WHERE check_id = %s AND child_id = %s",
+            (check_id, child_id),
+        ).fetchone()
+        if not on_list:
+            # Not in the snapshot: only a child who came in after the check
+            # started can join it, and only by being found.
+            arrived = db.execute(
+                _in_building_child_ids_sql() + " AND c.id = %s",
+                (check['check_date'].strftime('%Y-%m-%d'), child_id),
+            ).fetchone()
+            if not arrived:
+                db.rollback()
+                return jsonify({'error': 'That child is not on this check'}), 404
+
+        if accounted:
+            db.execute("""
+                INSERT INTO emergency_check_children
+                       (check_id, child_id, in_snapshot, accounted_at, accounted_by)
+                VALUES (%s, %s, FALSE, CURRENT_TIMESTAMP, %s)
+                ON CONFLICT (check_id, child_id) DO UPDATE SET
+                    accounted_at = COALESCE(emergency_check_children.accounted_at,
+                                            EXCLUDED.accounted_at),
+                    accounted_by = CASE
+                        WHEN emergency_check_children.accounted_at IS NULL
+                        THEN EXCLUDED.accounted_by
+                        ELSE emergency_check_children.accounted_by END
+            """, (check_id, child_id, _current_user_id()))
+        else:
+            db.execute("""
+                UPDATE emergency_check_children
+                   SET accounted_at = NULL, accounted_by = NULL
+                 WHERE check_id = %s AND child_id = %s
+            """, (check_id, child_id))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"[ERROR] mark_emergency_child: {e}")
+        return jsonify({'error': 'Could not save that'}), 500
+    finally:
+        db.close()
+    _publish_emergency(check_id)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/admin/emergency-check/<int:check_id>/end', methods=['POST'])
+@jwt_required()
+def admin_end_emergency_check(check_id):
+    """Close the roll call. It stays on file exactly as it stood."""
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    db = get_db()
+    try:
+        row = db.execute("""
+            UPDATE emergency_checks
+               SET ended_at = CURRENT_TIMESTAMP, ended_by = %s
+             WHERE id = %s AND ended_at IS NULL
+         RETURNING id
+        """, (_current_user_id(), check_id)).fetchone()
+    finally:
+        db.close()
+    if not row:
+        return jsonify({'error': 'No open check with that id'}), 404
+    print(f"[EMERGENCY] check {check_id} closed by user {_current_user_id()}")
+    _publish_emergency(check_id)
+    return jsonify({'ok': True})
 
 
 # ─── COUNSELOR ATTENDANCE SUBMIT ────────────────────────────────────────────

@@ -26,6 +26,7 @@ import {
   Settings,
   Shield,
   ShieldCheck,
+  Siren,
   Target,
   Upload,
   UserCheck,
@@ -114,6 +115,9 @@ const GROUPS: { title: string; items: Item[] }[] = [
       // the screen the afternoon is actually run from.
       { to: '/daily-board', label: 'Daily board', icon: ClipboardCheck, module: 'daily_ops' },
       { to: '/live-board', label: 'Live board', icon: Radio, module: 'check_in_out' },
+      // A roll call over the same "in the building" the Live board counts, so
+      // it sits under the same module and right beside it.
+      { to: '/emergency', label: 'Emergency check', icon: Siren, module: 'check_in_out' },
       { to: '/attendance', label: 'Attendance', icon: GraduationCap },
       // The live action, next to its own record: a parent who walks up to the
       // office instead of a school-gate counselor still needs someone to take

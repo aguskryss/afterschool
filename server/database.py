@@ -1317,6 +1317,40 @@ def init_db():
     cur.execute("ALTER TABLE block_checks ADD COLUMN IF NOT EXISTS routed_at "
                 "TIMESTAMP")
 
+    # An evacuation or drill run as a roll call (sql/71). The children in the
+    # building when it starts are written down rather than recomputed, so a
+    # child released mid-check stays on the list as "went home" instead of
+    # vanishing into the same silence as "missing". `ended_at IS NULL` is the
+    # open one; the one-per-organization index is below, after tenancy.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS emergency_checks (
+            id SERIAL PRIMARY KEY,
+            check_date DATE NOT NULL,
+            note TEXT,
+            started_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            ended_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            ended_at TIMESTAMP
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS emergency_check_children (
+            id SERIAL PRIMARY KEY,
+            check_id INTEGER NOT NULL
+                REFERENCES emergency_checks(id) ON DELETE CASCADE,
+            child_id INTEGER NOT NULL
+                REFERENCES children(id) ON DELETE CASCADE,
+            in_snapshot BOOLEAN NOT NULL DEFAULT TRUE,
+            accounted_at TIMESTAMP,
+            accounted_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            UNIQUE (check_id, child_id)
+        )
+    """)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_emergency_checks_started
+            ON emergency_checks (started_at)
+    """)
+
     # An upload parses into rows here and writes nothing to children until an
     # admin confirms, so the numbers they approved and the numbers that commit
     # come from one parse rather than two. roster_import_rows.parsed is a second
@@ -1400,6 +1434,15 @@ def init_db():
     # Tenancy has to land after every CREATE TABLE (it alters all of them) and
     # before the admin is seeded, since that admin needs an organization.
     tenancy.ensure_tenancy_schema(cur)
+
+    # At most one open emergency check per organization (sql/71). Two admins
+    # tapping "Start" at once must end up on the same roll call, not on two
+    # lists that each claim half the children. Here, not in sql/71, because it
+    # names organization_id, which the tenancy pass above has just added.
+    cur.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS emergency_checks_one_open
+            ON emergency_checks (organization_id) WHERE ended_at IS NULL
+    """)
 
     # staff_assignments' uniques, which have to be here rather than in
     # PER_ORG_UNIQUES and rather than in sql/37.
