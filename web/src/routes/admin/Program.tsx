@@ -322,7 +322,10 @@ type Message = {
   subject: string
   body: string
   created_at: string
+  audience_type?: 'all' | 'schools'
+  schools?: string[]
   recipient_count?: number
+  read_count?: number
   sender_name?: string | null
 }
 
@@ -488,9 +491,81 @@ function ComposeMessage({ onSent }: { onSent: () => void }) {
   )
 }
 
+/**
+ * A sent broadcast, read back in full. The list only has room for the first
+ * line, and an admin asked to see exactly what went out to families.
+ */
+function MessageDetail({ message, onClose }: { message: Message; onClose: () => void }) {
+  const audience =
+    message.audience_type === 'schools' && message.schools?.length
+      ? message.schools.join(', ')
+      : 'Every parent'
+
+  return (
+    <div className="fixed inset-0 z-30 flex justify-end">
+      <button
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-ink-900/40"
+      />
+      <aside className="relative flex h-full w-full max-w-lg flex-col overflow-y-auto bg-canvas-50 shadow-lift">
+        <header className="sticky top-0 flex items-start justify-between gap-3 border-b border-canvas-200 bg-canvas-50/95 px-5 py-4 backdrop-blur">
+          <div className="min-w-0">
+            <p className="text-lg font-extrabold break-words text-ink-900">
+              {message.subject}
+            </p>
+            <p className="text-[0.82rem] font-semibold text-ink-400">
+              {new Date(message.created_at).toLocaleString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+              })}
+              {message.sender_name ? ` · ${message.sender_name}` : ''}
+            </p>
+          </div>
+          <button
+            aria-label="Close"
+            onClick={onClose}
+            className="flex size-9 shrink-0 items-center justify-center rounded-full text-ink-500 hover:bg-canvas-100"
+          >
+            <X className="size-5" strokeWidth={2.2} />
+          </button>
+        </header>
+
+        <div className="flex flex-col gap-4 p-5">
+          <Card className="p-4">
+            <p className="text-[0.95rem] font-medium break-words whitespace-pre-wrap text-ink-800">
+              {message.body}
+            </p>
+          </Card>
+
+          <Card className="flex flex-col gap-2 p-4 text-[0.88rem]">
+            <div className="flex justify-between gap-3">
+              <span className="font-bold text-ink-500">Sent to</span>
+              <span className="text-right font-semibold text-ink-800">{audience}</span>
+            </div>
+            {message.recipient_count != null && (
+              <div className="flex justify-between gap-3">
+                <span className="font-bold text-ink-500">Read</span>
+                <span className="font-semibold text-ink-800">
+                  {message.read_count ?? 0} of {message.recipient_count} parent
+                  {message.recipient_count === 1 ? '' : 's'}
+                </span>
+              </div>
+            )}
+          </Card>
+        </div>
+      </aside>
+    </div>
+  )
+}
+
 export function AdminMessages() {
   const qc = useQueryClient()
   const [composing, setComposing] = useState(false)
+  const [open, setOpen] = useState<Message | null>(null)
   const { data, isPending } = useQuery({
     queryKey: ['admin', 'messages'],
     queryFn: () => api<Message[]>('/api/admin/messages'),
@@ -536,6 +611,7 @@ export function AdminMessages() {
         rows={data}
         columns={columns}
         loading={isPending}
+        onRowClick={setOpen}
         searchPlaceholder="Search messages…"
         emptyIcon={<Mail className="size-7" strokeWidth={1.8} />}
         emptyTitle="No messages sent"
@@ -546,6 +622,7 @@ export function AdminMessages() {
           </Button>
         }
       />
+      {open && <MessageDetail message={open} onClose={() => setOpen(null)} />}
     </div>
   )
 }
