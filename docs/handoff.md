@@ -6,6 +6,22 @@ anteriores quedan abajo, no se borran.
 
 ---
 
+## Sesión del 2026-10-20 — retirar desde la lista de clase
+
+Pedido: en My day, tocar el nombre de un chico abre su lista de autorizados y
+la firma, sin ir a Pickup. `GroupCard` monta el mismo `ReleaseChild` debajo de
+la fila; sin backend nuevo. Solo hoy (el release siempre graba
+`today_for_org()`), solo con `secure_pickup`, no para ausentes. Al terminar
+invalida `['counselor', 'my-day', date]` para que la fila pase a "Gone".
+
+**Pendiente de decidir:** `counselor_covers_child` filtra por escuela asignada,
+así que un chico de otra escuela en la clase del counselor da 403 al abrir el
+panel. Mismo comportamiento que Pickup, pero en clases mezcladas pasa más.
+
+Verificado: `npx tsc -b`, `npm run build`. No probado en navegador.
+
+---
+
 ## Sesión del 2026-10-15 — verificación de emergencia (roll call)
 
 Pedido del admin: una pestaña para una verificación de emergencia, una lista

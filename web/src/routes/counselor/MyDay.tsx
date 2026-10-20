@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowRight,
   CalendarOff,
@@ -13,6 +13,7 @@ import {
   TriangleAlert,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { hasModule } from '@/lib/auth'
 import {
   checkKey,
   isChecked,
@@ -24,6 +25,7 @@ import {
 } from '@/lib/blockChecks'
 import { hasAllergy, shortAllergy } from '@/lib/roster'
 import { Card, EmptyState, Skeleton } from '@/components/ui'
+import { ReleaseChild } from '@/components/ReleaseChild'
 
 type Child = {
   child_id: number
@@ -659,6 +661,8 @@ function BlockContent({
                 blockRef={ref}
                 checks={checks}
                 verb={verb}
+                date={date}
+                canRelease={isToday && hasModule('secure_pickup')}
                 onSet={(childIds, present) =>
                   ref && setChecks.mutate({ block: ref, childIds, present })
                 }
@@ -680,6 +684,8 @@ function GroupCard({
   blockRef: ref,
   checks,
   verb,
+  date,
+  canRelease,
   onSet,
   onRoute,
 }: {
@@ -688,10 +694,16 @@ function GroupCard({
   blockRef: BlockRef | null
   checks: Map<string, CheckState> | undefined
   verb: string
+  date: string
+  /** Today only, and only where the JCC has secure pickup: the release
+   *  endpoints are behind that module and only ever record today. */
+  canRelease: boolean
   onSet: (childIds: number[], present: boolean) => void
   onRoute: (childIds: number[], routed: boolean) => void
 }) {
+  const qc = useQueryClient()
   const [openAllergy, setOpenAllergy] = useState<number | null>(null)
+  const [openRelease, setOpenRelease] = useState<number | null>(null)
   // Picked up already, elsewhere or earlier in this same block, is accounted
   // for the same way absent is — nobody has to go check whether a child who
   // left at 4:20 was ever still expected in a 5-6 room.
@@ -806,9 +818,28 @@ function GroupCard({
                 )}
 
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[1rem] leading-tight font-extrabold text-ink-900">
-                    {child.name}
-                  </p>
+                  {/* Tapping the name opens the same authorized-pickup list
+                      and signature as the Pickup screen, right here — a parent
+                      walking into the class should not send the counselor
+                      off to another screen to find the child again. */}
+                  {canRelease && !child.absent ? (
+                    <button
+                      type="button"
+                      aria-expanded={openRelease === child.child_id}
+                      onClick={() =>
+                        setOpenRelease((c) =>
+                          c === child.child_id ? null : child.child_id,
+                        )
+                      }
+                      className="block max-w-full truncate text-start text-[1rem] leading-tight font-extrabold text-ink-900 underline decoration-canvas-200 decoration-2 underline-offset-4"
+                    >
+                      {child.name}
+                    </button>
+                  ) : (
+                    <p className="truncate text-[1rem] leading-tight font-extrabold text-ink-900">
+                      {child.name}
+                    </p>
+                  )}
                   {/* Where they were right before this class — the thing a
                       counselor with 30+ kids moving between six places cannot
                       see just from the enrollment list. Only classes have an
@@ -888,6 +919,23 @@ function GroupCard({
                   {pickup(child.dismissal_time)}
                 </span>
               </div>
+
+              {openRelease === child.child_id && (
+                <div className="px-3 pb-2">
+                  <ReleaseChild
+                    childId={child.child_id}
+                    childName={child.name}
+                    date={date}
+                    onDone={() => {
+                      setOpenRelease(null)
+                      // ReleaseChild refreshes the Pickup screen's queries;
+                      // this list has its own, and the row should turn
+                      // "Gone" now rather than on the next 30-second poll.
+                      void qc.invalidateQueries({ queryKey: ['counselor', 'my-day', date] })
+                    }}
+                  />
+                </div>
+              )}
 
               {/* Chained arrivals get a line rather than a chip beside the
                   name: the name truncates at the column edge, so a chip there
