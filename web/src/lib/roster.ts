@@ -22,6 +22,9 @@ export type RosterChild = {
   grade: string | null
   /** 3, 4, 5 or 6 — the hour they leave. NULL where the JCC doesn't use them. */
   dismissal_time: number | null
+  /** False only on a special day, for a child coming that day but dropped
+   *  off by a parent: not someone to look for at the school gate. */
+  on_bus?: boolean
   allergies: string | null
   notes: string | null
   /** Where this child goes first after the bus (§3.4's "Where to?"). Null on
@@ -39,6 +42,9 @@ export type RosterSchool = {
   day: string
   attending: RosterChild[]
   absent: RosterChild[]
+  /** Set when an admin gave this date its own list (an early dismissal, a
+   *  vacation day) — that list is `attending`, not the weekly enrollment. */
+  special_day?: { note: string | null } | null
   /** Only sent to organizations with the check_in_out module. Keyed by child id. */
   times?: Record<
     string,
@@ -177,14 +183,29 @@ export function schoolProgress(
   school: RosterSchool,
   marks: AttendanceMap | undefined,
 ): SchoolProgress {
-  const pending = school.attending.filter((c) => !marks?.[String(c.id)])
+  // Only the bus riders. A child dropped off on a special day is not at the
+  // gate, so Submit must not record them as "not on the bus" — they arrive
+  // later, by car, and are ticked in from their own section.
+  const riders = busRiders(school)
+  const pending = riders.filter((c) => !marks?.[String(c.id)])
   return {
-    here: school.attending.filter((c) => isHere(marks?.[String(c.id)])).length,
-    total: school.attending.length,
-    gone: school.attending.filter((c) => isGone(marks?.[String(c.id)])).length,
+    here: riders.filter((c) => isHere(marks?.[String(c.id)])).length,
+    total: riders.length,
+    gone: riders.filter((c) => isGone(marks?.[String(c.id)])).length,
     pending,
-    submitted: school.attending.length > 0 && pending.length === 0,
+    submitted: riders.length > 0 && pending.length === 0,
   }
+}
+
+/** The children to collect at the school gate. Everyone, except on a special
+ *  day, where a parent may be dropping some of them off instead. */
+export function busRiders(school: RosterSchool): RosterChild[] {
+  return school.attending.filter((c) => c.on_bus !== false)
+}
+
+/** Coming today, but dropped off by a parent rather than on the bus. */
+export function dropOffs(school: RosterSchool): RosterChild[] {
+  return school.attending.filter((c) => c.on_bus === false)
 }
 
 /**

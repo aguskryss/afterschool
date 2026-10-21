@@ -58,6 +58,7 @@ import { AdminStaffSchedule } from '@/routes/admin/StaffSchedule'
 import { AdminDailyBoard } from '@/routes/admin/DailyBoard'
 import { AdminLiveBoard } from '@/routes/admin/LiveBoard'
 import { AdminEmergencyCheck } from '@/routes/admin/EmergencyCheck'
+import { AdminSpecialDays } from '@/routes/admin/SpecialDays'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -110,6 +111,7 @@ const ADMIN_ROUTES: [string, ReactNode][] = [
   ['/admins', <AdminAdmins />],
   ['/schools', <AdminSchools />],
   ['/grades', <AdminGrades />],
+  ['/special-days', <AdminSpecialDays />],
   // Screens whose endpoints belong to a module are wrapped: hiding the nav
   // item leaves the route reachable by URL, and every request behind it 403s.
   ['/calendar-admin', <ModuleGuard module="calendar"><AdminCalendar /></ModuleGuard>],

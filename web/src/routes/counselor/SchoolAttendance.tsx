@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
+  CalendarClock,
+  Car,
   Check,
   ChevronLeft,
   CircleCheckBig,
@@ -11,12 +13,15 @@ import { isGone, type AttendanceMap } from '@/lib/attendance'
 import { readSession } from '@/lib/auth'
 import {
   absentToday,
+  busRiders,
   destinationSuffix,
+  dropOffs,
   hhmm,
   schoolProgress,
   useAttendanceMarks,
   useMarkAttendance,
   useRoster,
+  type RosterChild,
   type RosterSchool,
 } from '@/lib/roster'
 import { Avatar, Button, Card, EmptyState, Pill, Skeleton } from '@/components/ui'
@@ -34,6 +39,85 @@ function AttendanceList({
   const date = school.date
   const mark = useMarkAttendance(date)
   const absent = absentToday(school, marks)
+  const riders = busRiders(school)
+  const dropped = dropOffs(school)
+
+  const renderRow = (child: RosterChild) => {
+    const entry = marks?.[String(child.id)]
+    const on = Boolean(entry?.on_bus)
+    const times = school.times?.[String(child.id)]
+    // From the attendance map rather than the module-gated times, so a
+    // released child reads as gone at every JCC.
+    const gone = isGone(entry)
+    return (
+      <li key={child.id} className="flex flex-wrap items-stretch">
+        {/* The whole row is the target: thumb-sized, not a small checkbox. */}
+        <button
+          type="button"
+          aria-pressed={on}
+          disabled={gone}
+          onClick={() => mark.mutate({ childId: child.id, present: !on })}
+          className={`flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left transition-colors ${
+            gone
+              ? 'bg-canvas-50'
+              : on
+                ? 'bg-leaf-50'
+                : 'hover:bg-canvas-100'
+          }`}
+        >
+          <Avatar name={child.name} id={child.id} photoUrl={child.photo_url} />
+          <div className="min-w-0 flex-1">
+            {/* No allergy flag here. Ticking a child onto the bus is not
+                a moment where allergies change anything, and a marker on
+                every second name turns into wallpaper — it belongs where
+                it is acted on: the day sheets and the pickup door. */}
+            <p
+              className={`truncate font-bold ${gone ? 'text-ink-400' : 'text-ink-900'}`}
+            >
+              {child.name}
+            </p>
+            <p className="truncate text-[0.82rem] font-medium text-ink-500">
+              {gone
+                ? times?.checked_out_at
+                  ? `Picked up by parent ${hhmm(times.checked_out_at)}`
+                  : 'Picked up by parent'
+                : (times?.checked_in_at
+                    ? `In at ${hhmm(times.checked_in_at)}`
+                    : childSubtitle(child)) + destinationSuffix(child)}
+            </p>
+          </div>
+          {/* A green tick next to "picked up by parent" reads as
+              "present". Once a child has gone, the control becomes a
+              label. */}
+          {gone ? (
+            <Pill status="neutral">Gone</Pill>
+          ) : (
+            <span
+              className={`flex size-8 shrink-0 items-center justify-center rounded-full border-2 transition ${
+                on
+                  ? 'border-leaf-500 bg-leaf-500 text-white'
+                  : 'border-canvas-200 text-transparent'
+              }`}
+            >
+              <Check className="size-4" strokeWidth={3.5} />
+            </span>
+          )}
+        </button>
+
+        {/* Only for a child still in play. Once they have left with a
+            parent the day is closed for them, and the server refuses a
+            status change anyway. */}
+        {!gone && (
+          <ChildStatusControl
+            childId={child.id}
+            childName={child.name}
+            date={date}
+            mark={entry}
+          />
+        )}
+      </li>
+    )
+  }
 
   if (school.attending.length === 0) {
     return (
@@ -50,83 +134,22 @@ function AttendanceList({
   return (
     <Card className="mb-4 overflow-hidden">
       <ul className="divide-y divide-canvas-200">
-        {school.attending.map((child) => {
-          const entry = marks?.[String(child.id)]
-          const on = Boolean(entry?.on_bus)
-          const times = school.times?.[String(child.id)]
-          // From the attendance map rather than the module-gated times, so a
-          // released child reads as gone at every JCC.
-          const gone = isGone(entry)
-          return (
-            <li key={child.id} className="flex flex-wrap items-stretch">
-              {/* The whole row is the target: thumb-sized, not a small checkbox. */}
-              <button
-                type="button"
-                aria-pressed={on}
-                disabled={gone}
-                onClick={() => mark.mutate({ childId: child.id, present: !on })}
-                className={`flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left transition-colors ${
-                  gone
-                    ? 'bg-canvas-50'
-                    : on
-                      ? 'bg-leaf-50'
-                      : 'hover:bg-canvas-100'
-                }`}
-              >
-                <Avatar name={child.name} id={child.id} photoUrl={child.photo_url} />
-                <div className="min-w-0 flex-1">
-                  {/* No allergy flag here. Ticking a child onto the bus is not
-                      a moment where allergies change anything, and a marker on
-                      every second name turns into wallpaper — it belongs where
-                      it is acted on: the day sheets and the pickup door. */}
-                  <p
-                    className={`truncate font-bold ${gone ? 'text-ink-400' : 'text-ink-900'}`}
-                  >
-                    {child.name}
-                  </p>
-                  <p className="truncate text-[0.82rem] font-medium text-ink-500">
-                    {gone
-                      ? times?.checked_out_at
-                        ? `Picked up by parent ${hhmm(times.checked_out_at)}`
-                        : 'Picked up by parent'
-                      : (times?.checked_in_at
-                          ? `In at ${hhmm(times.checked_in_at)}`
-                          : childSubtitle(child)) + destinationSuffix(child)}
-                  </p>
-                </div>
-                {/* A green tick next to "picked up by parent" reads as
-                    "present". Once a child has gone, the control becomes a
-                    label. */}
-                {gone ? (
-                  <Pill status="neutral">Gone</Pill>
-                ) : (
-                  <span
-                    className={`flex size-8 shrink-0 items-center justify-center rounded-full border-2 transition ${
-                      on
-                        ? 'border-leaf-500 bg-leaf-500 text-white'
-                        : 'border-canvas-200 text-transparent'
-                    }`}
-                  >
-                    <Check className="size-4" strokeWidth={3.5} />
-                  </span>
-                )}
-              </button>
-
-              {/* Only for a child still in play. Once they have left with a
-                  parent the day is closed for them, and the server refuses a
-                  status change anyway. */}
-              {!gone && (
-                <ChildStatusControl
-                  childId={child.id}
-                  childName={child.name}
-                  date={date}
-                  mark={entry}
-                />
-              )}
-            </li>
-          )
-        })}
+        {riders.map(renderRow)}
       </ul>
+
+      {/* A special day's parent drop-offs: coming, but not at this gate.
+          Still tappable, so whoever sees them arrive can tick them in. */}
+      {dropped.length > 0 && (
+        <>
+          <p className="flex items-center gap-1.5 border-t border-canvas-200 bg-canvas-50 px-4 pt-3 pb-2 text-[0.74rem] font-extrabold tracking-wide text-ink-400 uppercase">
+            <Car className="size-3.5" strokeWidth={2.6} />
+            Parent drop-off today · not on the bus
+          </p>
+          <ul className="divide-y divide-canvas-200 border-t border-canvas-200">
+            {dropped.map(renderRow)}
+          </ul>
+        </>
+      )}
 
       {absent.length > 0 && (
         <div className="border-t border-canvas-200 bg-canvas-50 px-4 py-3">
@@ -262,6 +285,17 @@ export function CounselorSchoolAttendance() {
           </p>
         </div>
       </header>
+
+      {school.special_day && (
+        <p className="mb-3 flex items-start gap-2 rounded-xl bg-sun-50 px-3 py-2.5 text-[0.86rem] font-bold text-sun-700">
+          <CalendarClock className="mt-0.5 size-4 shrink-0" strokeWidth={2.4} />
+          <span>
+            Special list for today
+            {school.special_day.note ? ` — ${school.special_day.note}` : ''}.
+            Only the children below are coming.
+          </span>
+        </p>
+      )}
 
       <p className="mb-3 px-1 text-[0.82rem] font-medium text-ink-400">
         Tap each child as they get on the bus. Every tap saves on its own —

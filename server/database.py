@@ -1351,6 +1351,37 @@ def init_db():
             ON emergency_checks (started_at)
     """)
 
+    # A one-date replacement for the weekly enrollment (sql/73): early
+    # dismissals and vacation days, when only some children come and only some
+    # of those ride the bus. When a date has one, its rows ARE that day's
+    # roster — registrations are not consulted at all — so a child left off
+    # the list is simply not expected, rather than "absent". One per date per
+    # organization; that index is below, after tenancy.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS special_days (
+            id SERIAL PRIMARY KEY,
+            day_date DATE NOT NULL,
+            note TEXT,
+            created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS special_day_children (
+            id SERIAL PRIMARY KEY,
+            special_day_id INTEGER NOT NULL
+                REFERENCES special_days(id) ON DELETE CASCADE,
+            child_id INTEGER NOT NULL
+                REFERENCES children(id) ON DELETE CASCADE,
+            on_bus BOOLEAN NOT NULL DEFAULT TRUE,
+            dismissal_time SMALLINT
+                CHECK (dismissal_time IS NULL OR dismissal_time BETWEEN 3 AND 6),
+            UNIQUE (special_day_id, child_id)
+        )
+    """)
+
     # An upload parses into rows here and writes nothing to children until an
     # admin confirms, so the numbers they approved and the numbers that commit
     # come from one parse rather than two. roster_import_rows.parsed is a second
@@ -1442,6 +1473,13 @@ def init_db():
     cur.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS emergency_checks_one_open
             ON emergency_checks (organization_id) WHERE ended_at IS NULL
+    """)
+
+    # One special list per date per organization (sql/73), for the same reason
+    # and in the same place as the index above.
+    cur.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS special_days_one_per_date
+            ON special_days (organization_id, day_date)
     """)
 
     # staff_assignments' uniques, which have to be here rather than in

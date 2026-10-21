@@ -78,6 +78,9 @@ CORE_PREFIXES = (
     # Who covers which school, and the log of who changed it. Core for the
     # same reason the roster is: a JCC cannot run an afternoon without it.
     '/api/admin/counselor-assignments',
+    # A one-date roster replacing the weekly one. Core for the same reason the
+    # roster is: it decides who is on the school-gate list every JCC uses.
+    '/api/admin/special-days',
     '/api/admin/parents',
     '/api/admin/children',
     '/api/admin/admins',

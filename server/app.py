@@ -148,6 +148,49 @@ def absent_child_ids_for_date(db, date_str):
     return {r['child_id'] for r in rows}
 
 
+# ─── WHO IS ENROLLED ON A DATE ──────────────────────────────────────────────
+# Enrollment is weekly — `registrations` says "Mondays, out at 5" — except on a
+# date an admin has given its own list (sql/73): an early dismissal or a
+# vacation day, when only some children come, only some of those ride the bus,
+# and someone who never comes on that weekday may come for that one day.
+
+
+def registrations_for_date(db, date_str):
+    """What to join in place of `registrations` for one date, as SQL.
+
+    Normally the weekly table itself. On a date with a special list it is that
+    list instead, shaped the same way — id, child_id, day_of_week,
+    dismissal_time — so a caller swaps it into its FROM and keeps its own
+    `r.day_of_week = %s` unchanged. Both shapes add `on_bus`, TRUE for every
+    weekly row: a child left off the bus on a special day is still coming,
+    just dropped off by a parent.
+
+    The fragment has no placeholders — the one value in it is an integer id
+    read back from the database — so it drops into a query without moving
+    anyone's parameters.
+    """
+    special = db.execute(
+        "SELECT id FROM special_days WHERE day_date = %s", (date_str,)
+    ).fetchone()
+    if special is None:
+        return ("(SELECT id, child_id, day_of_week, dismissal_time, "
+                "TRUE AS on_bus FROM registrations)")
+    return f"""(SELECT sdc.id, sdc.child_id,
+                       to_char(sd.day_date, 'FMDay') AS day_of_week,
+                       sdc.dismissal_time, sdc.on_bus
+                  FROM special_day_children sdc
+                  JOIN special_days sd ON sd.id = sdc.special_day_id
+                 WHERE sd.id = {int(special['id'])})"""
+
+
+def special_day_note(db, date_str):
+    """{'note': ...} when the date has its own list, else None."""
+    row = db.execute(
+        "SELECT note FROM special_days WHERE day_date = %s", (date_str,)
+    ).fetchone()
+    return {'note': row['note']} if row else None
+
+
 # ─── WHERE A CHILD IS ───────────────────────────────────────────────────────
 # One row per child per day carries `status`; see sql/31_add_child_status.sql
 # for why these six and not the spec's seven.
@@ -2215,7 +2258,8 @@ def counselor_get_roster():
     # `_plan_for_day` would just be an empty query.
     where_to = {}
     if module_on('daily_ops', db):
-        day_plan, _by_id, _rooms, _absent, _released = _plan_for_day(db, day_name)
+        day_plan, _by_id, _rooms, _absent, _released = _plan_for_day(
+            db, day_name, date_obj.date())
         where_to = _where_to_by_child(day_plan)
 
     # One query shape for both halves of the roster. It used to be four copies
@@ -2227,14 +2271,17 @@ def counselor_get_roster():
     # dismissal hour so they know who they are looking for and when the child
     # leaves, and the allergies, which is the one field that changes what they
     # do in the moment.
-    ROSTER_COLUMNS = """
+    #
+    # `registrations_for_date` rather than `registrations`: on an early
+    # dismissal or a vacation day the admin's list for that date is the roster.
+    ROSTER_COLUMNS = f"""
         SELECT c.id, c.name, c.service_type, c.release_group,
                c.grade_label, c.grade_num, c.allergies, c.notes,
-               c.photo_path, r.dismissal_time,
+               c.photo_path, r.dismissal_time, r.on_bus,
                u.name AS parent_name, u.email AS parent_email
           FROM children c
           JOIN users u ON c.parent_id = u.id
-          JOIN registrations r ON r.child_id = c.id
+          JOIN {registrations_for_date(db, date_str)} r ON r.child_id = c.id
          WHERE c.school_id = %s
            AND c.active = 1
            AND r.day_of_week = %s
@@ -2262,6 +2309,9 @@ def counselor_get_roster():
             # times a registrations row means "enrolled this weekday" and
             # nothing more, and the row must not imply an hour nobody set.
             'dismissal_time': ch['dismissal_time'],
+            # False only on a special day, for a child coming that day but
+            # dropped off by a parent — not someone to look for at the gate.
+            'on_bus': bool(ch['on_bus']),
             'allergies': ch['allergies'],
             'notes': ch['notes'],
             'parent': ch['parent_name'],
@@ -2274,6 +2324,8 @@ def counselor_get_roster():
             # so every school is signed in one call (attach_child_photo_urls).
             'photo_path': ch['photo_path'],
         }
+
+    special = special_day_note(db, date_str)
 
     for school in schools:
         children = roster_rows(school['id'], absent_only=False)
@@ -2301,6 +2353,8 @@ def counselor_get_roster():
             'wednesday_together': wednesday_together,
             'attending': [child_dict(ch) for ch in children],
             'absent': [child_dict(ch) for ch in absent],
+            # {'note'} when this date runs on an admin's special list.
+            'special_day': special,
         })
 
     # Arrival and departure times ride along for organizations that bought
@@ -2464,12 +2518,12 @@ def admin_school_roster(school_id):
         return jsonify({'error': 'School not found'}), 404
 
     # Full Service first, then others — both groups alphabetical
-    children = db.execute("""
+    children = db.execute(f"""
         SELECT c.id, c.name, c.service_type, u.name as parent_name, u.email as parent_email,
                CASE c.service_type WHEN 'Full Service' THEN 1 ELSE 2 END as sort_order
         FROM children c
         JOIN users u ON c.parent_id = u.id
-        JOIN registrations r ON r.child_id = c.id
+        JOIN {registrations_for_date(db, date_str)} r ON r.child_id = c.id
         WHERE c.school_id = %s
           AND c.active = 1
           AND r.day_of_week = %s
@@ -7095,13 +7149,18 @@ def _plan_for_day(db, day, on_date=None):
     up — the plan itself is about the weekday, since registrations, classes
     and care rules are all weekly.
     """
+    # Who comes is the one thing a date can change on its own: a special
+    # day's list replaces the weekly enrollment (registrations_for_date).
+    # Classes and care rules stay weekly.
+    regs = (registrations_for_date(db, on_date.isoformat())
+            if on_date else 'registrations')
     children = [dict(r) for r in db.execute(
-        """
+        f"""
         SELECT c.id, c.name, c.grade_num, c.grade_label, c.allergies,
                c.school_id, s.name AS school_name, r.dismissal_time,
                c.bus_rider
           FROM children c
-          JOIN registrations r ON r.child_id = c.id
+          JOIN {regs} r ON r.child_id = c.id
           LEFT JOIN schools s ON s.id = c.school_id
          WHERE c.active = 1 AND r.day_of_week = %s
          ORDER BY c.name
@@ -7986,7 +8045,7 @@ def _headcount_snapshot(db, date_str):
     except ValueError:
         return []
     absent_ids = list(absent_child_ids_for_date(db, date_str)) or None
-    rows = db.execute("""
+    rows = db.execute(f"""
         WITH day AS (
             SELECT c.id, c.school_id,
                    r.id IS NOT NULL                        AS scheduled,
@@ -7995,7 +8054,7 @@ def _headcount_snapshot(db, date_str):
                    (%s::int[] IS NOT NULL
                     AND c.id = ANY(%s::int[]))             AS reported_absent
               FROM children c
-              LEFT JOIN registrations r
+              LEFT JOIN {registrations_for_date(db, date_str)} r
                      ON r.child_id = c.id AND r.day_of_week = %s
               LEFT JOIN attendance_records ar
                      ON ar.child_id = c.id AND ar.attendance_date = %s
@@ -8036,6 +8095,215 @@ def _publish_headcount(date_str):
         print(f"[WARN] _publish_headcount: {e}")
 
 
+# ─── SPECIAL DAYS ───────────────────────────────────────────────────────────
+# The admin's side of registrations_for_date(): building the list for one date.
+
+
+def _special_day_children(db, day_date, special_id):
+    """Every active child, with whether they come on `day_date` and how.
+
+    With a saved list, that list. Without one, what the weekly enrollment
+    would do, so the admin starts from the normal day and only changes what
+    is different. `usual_*` is the weekly answer either way — it is what tells
+    them a child is on the list just for this date, or at a different hour.
+    """
+    day_name = day_date.strftime('%A')
+    rows = db.execute("""
+        SELECT c.id, c.name, c.grade_label, c.grade_num, c.arrival_mode,
+               c.school_id, s.name AS school,
+               r.id IS NOT NULL AS usual_coming,
+               r.dismissal_time AS usual_dismissal_time,
+               sdc.id IS NOT NULL AS listed,
+               sdc.on_bus, sdc.dismissal_time
+          FROM children c
+          LEFT JOIN schools s ON s.id = c.school_id
+          LEFT JOIN registrations r
+                 ON r.child_id = c.id AND r.day_of_week = %s
+          LEFT JOIN special_day_children sdc
+                 ON sdc.child_id = c.id AND sdc.special_day_id = %s
+         WHERE c.active = 1
+         ORDER BY s.name NULLS LAST, c.name
+    """, (day_name, special_id)).fetchall()
+    out = []
+    for r in rows:
+        if special_id is not None:
+            coming, on_bus, hour = r['listed'], bool(r['on_bus']), r['dismissal_time']
+        else:
+            # A child the roster marks as dropped off is not on a bus on any
+            # day, special or not.
+            coming = r['usual_coming']
+            on_bus = r['arrival_mode'] != 'dropoff'
+            hour = r['usual_dismissal_time']
+        out.append({
+            'child_id': r['id'],
+            'name': r['name'],
+            'grade_label': r['grade_label'],
+            'school_id': r['school_id'],
+            'school': r['school'],
+            'coming': bool(coming),
+            'on_bus': bool(on_bus) if coming else r['arrival_mode'] != 'dropoff',
+            'dismissal_time': hour if coming else r['usual_dismissal_time'],
+            'usual_coming': bool(r['usual_coming']),
+            'usual_dismissal_time': r['usual_dismissal_time'],
+        })
+    return out
+
+
+@app.route('/api/admin/special-days', methods=['GET'])
+@jwt_required()
+def admin_list_special_days():
+    """Dates with their own list: every upcoming one, and the last month's."""
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    db = get_db()
+    try:
+        rows = db.execute("""
+            SELECT sd.day_date, sd.note,
+                   COUNT(sdc.id)                       AS coming,
+                   COUNT(sdc.id) FILTER (WHERE sdc.on_bus) AS on_bus
+              FROM special_days sd
+              LEFT JOIN special_day_children sdc ON sdc.special_day_id = sd.id
+             WHERE sd.day_date >= %s::date - 30
+             GROUP BY sd.id
+             ORDER BY sd.day_date
+        """, (today_for_org(),)).fetchall()
+    finally:
+        db.close()
+    return jsonify([{
+        'date': r['day_date'].isoformat(),
+        'note': r['note'],
+        'coming': r['coming'],
+        'on_bus': r['on_bus'],
+    } for r in rows])
+
+
+@app.route('/api/admin/special-days/<day>', methods=['GET'])
+@jwt_required()
+def admin_get_special_day(day):
+    """One date's list, or the weekly one as a starting point."""
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    day_date, error = _parse_day(day)
+    if error or day_date is None:
+        return jsonify({'error': error or 'date is required'}), 400
+    db = get_db()
+    try:
+        special = db.execute(
+            "SELECT id, note, updated_at FROM special_days WHERE day_date = %s",
+            (day_date,),
+        ).fetchone()
+        children = _special_day_children(
+            db, day_date, special['id'] if special else None)
+    finally:
+        db.close()
+    return jsonify({
+        'date': day_date.isoformat(),
+        'day': day_date.strftime('%A'),
+        'saved': special is not None,
+        'note': special['note'] if special else None,
+        'updated_at': iso_utc(special['updated_at']) if special else None,
+        'children': children,
+    })
+
+
+@app.route('/api/admin/special-days/<day>', methods=['PUT'])
+@jwt_required()
+def admin_save_special_day(day):
+    """Replace one date's list. `children` is everyone coming; anyone not in
+    it is not expected that day."""
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    day_date, error = _parse_day(day)
+    if error or day_date is None:
+        return jsonify({'error': error or 'date is required'}), 400
+    data = request.json or {}
+    note = (data.get('note') or '').strip()[:200] or None
+    entries = data.get('children')
+    if not isinstance(entries, list):
+        return jsonify({'error': 'children must be a list'}), 400
+
+    wanted = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            return jsonify({'error': 'Each child must be an object'}), 400
+        try:
+            child_id = int(entry.get('child_id'))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'child_id is required'}), 400
+        hour = entry.get('dismissal_time')
+        if hour is not None:
+            try:
+                hour = int(hour)
+            except (TypeError, ValueError):
+                hour = -1
+            if hour not in daily_routing.DISMISSAL_TIMES:
+                return jsonify({'error': 'Pickup time must be 3, 4, 5 or 6'}), 400
+        wanted[child_id] = (bool(entry.get('on_bus', True)), hour)
+
+    db = get_db_transaction()
+    try:
+        # Only this organization's active children; RLS already hides the
+        # rest, so an unknown id is a stale screen rather than an attack, and
+        # is refused rather than quietly dropped.
+        if wanted:
+            found = {r['id'] for r in db.execute(
+                "SELECT id FROM children WHERE active = 1 AND id = ANY(%s)",
+                (list(wanted),),
+            ).fetchall()}
+            missing = set(wanted) - found
+            if missing:
+                db.rollback()
+                return jsonify({'error': 'Some of those children are no longer '
+                                         'on the roster — reload and try again'}), 400
+        me = _current_user_id()
+        special_id = db.execute("""
+            INSERT INTO special_days (day_date, note, created_by, updated_by)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (organization_id, day_date) DO UPDATE
+               SET note = excluded.note,
+                   updated_by = excluded.updated_by,
+                   updated_at = CURRENT_TIMESTAMP
+            RETURNING id
+        """, (day_date, note, me, me)).fetchone()['id']
+        db.execute("DELETE FROM special_day_children WHERE special_day_id = %s",
+                   (special_id,))
+        for child_id, (on_bus, hour) in wanted.items():
+            db.execute("""
+                INSERT INTO special_day_children
+                    (special_day_id, child_id, on_bus, dismissal_time)
+                VALUES (%s, %s, %s, %s)
+            """, (special_id, child_id, on_bus, hour))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"[ERROR] save_special_day: {e}")
+        return jsonify({'error': 'Could not save the list'}), 500
+    finally:
+        db.close()
+    if day_date.isoformat() == today_for_org():
+        _publish_headcount(day_date.isoformat())
+    return jsonify({'date': day_date.isoformat(), 'coming': len(wanted)})
+
+
+@app.route('/api/admin/special-days/<day>', methods=['DELETE'])
+@jwt_required()
+def admin_delete_special_day(day):
+    """Put a date back on the weekly enrollment."""
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    day_date, error = _parse_day(day)
+    if error or day_date is None:
+        return jsonify({'error': error or 'date is required'}), 400
+    db = get_db()
+    try:
+        db.execute("DELETE FROM special_days WHERE day_date = %s", (day_date,))
+    finally:
+        db.close()
+    if day_date.isoformat() == today_for_org():
+        _publish_headcount(day_date.isoformat())
+    return jsonify({'ok': True})
+
+
 # ─── THE AFTERNOON, PER SCHOOL ──────────────────────────────────────────────
 # The headcount tile answers "how many are here". Running the afternoon needs
 # the other half: who is still out there, who is covering that school, and —
@@ -8065,7 +8333,7 @@ def _operations_snapshot(db, date_str):
         return []
     absent_ids = list(absent_child_ids_for_date(db, date_str)) or None
 
-    rows = db.execute("""
+    rows = db.execute(f"""
         WITH day AS (
             SELECT c.id, c.school_id,
                    r.id IS NOT NULL                  AS scheduled,
@@ -8075,7 +8343,7 @@ def _operations_snapshot(db, date_str):
                    (%s::int[] IS NOT NULL
                     AND c.id = ANY(%s::int[]))       AS reported_absent
               FROM children c
-              LEFT JOIN registrations r
+              LEFT JOIN {registrations_for_date(db, date_str)} r
                      ON r.child_id = c.id AND r.day_of_week = %s
               LEFT JOIN attendance_records ar
                      ON ar.child_id = c.id AND ar.attendance_date = %s
@@ -9684,10 +9952,13 @@ def _run_attendance_check(organization_id):
 
     db = get_db_transaction()
     try:
-        pending = db.execute("""
+        # Today's list, special or weekly: on an early dismissal, a family
+        # whose child is not on the admin's list is not asked about them.
+        pending = db.execute(f"""
             SELECT c.id AS child_id, c.name AS child_name, c.parent_id
               FROM children c
-              JOIN registrations r ON r.child_id = c.id AND r.day_of_week = %s
+              JOIN {registrations_for_date(db, check_date)} r
+                ON r.child_id = c.id AND r.day_of_week = %s
              WHERE c.active = 1
                AND c.parent_id IS NOT NULL
                AND NOT EXISTS (

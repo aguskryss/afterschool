@@ -427,6 +427,10 @@ TENANT_TABLES = (
     # roster's reason.
     'emergency_checks',
     'emergency_check_children',
+    # One-date rosters for early dismissals and vacation days (sql/73). A row
+    # names a real child and whether they ride the bus that day.
+    'special_days',
+    'special_day_children',
 )
 
 # Deliberately global, not tenant-scoped:

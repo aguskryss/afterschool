@@ -6,6 +6,56 @@ anteriores quedan abajo, no se borran.
 
 ---
 
+## Sesión del 2026-10-21 — listas especiales por fecha (salida anticipada, vacaciones)
+
+Pedido: una lista temporal de bus para días puntuales en que no vienen todos ni
+todos usan el bus. Decisiones (con el usuario): quien no va en el bus **viene
+igual** (lo deja un padre); la lista la arma **el admin**, sin confirmación de
+padres; el horario de retiro puede cambiar por chico, y puede venir alguien que
+normalmente no viene ese día.
+
+### `special_days` + `special_day_children` — sql/73 (rollback sql/74)
+
+Una fila por fecha (índice único `(organization_id, day_date)` en `init_db()`
+después de tenancy) y una por chico que viene: `on_bus`, `dismissal_time` (3–6,
+mismo rango que `registrations`). Ambas en `TENANT_TABLES`.
+
+**Cuando una fecha tiene lista, esa lista ES el roster del día.**
+`registrations_for_date(db, date)` devuelve un fragmento SQL con la forma de
+`registrations` (+ `on_bus`) y lo usan: `/api/counselor/roster`,
+`/api/admin/schools/<id>/roster`, `_plan_for_day` (cuando recibe `on_date`: My
+day, daily board, `_child_locations_at`), `_headcount_snapshot`,
+`_operations_snapshot` y `_run_attendance_check`. Un chico fuera de la lista
+queda "unscheduled", no "absent": no se le pregunta a la familia. Las vistas
+semanales (stats, grilla de staff, `_roster_grades`, exports) siguen leyendo
+`registrations` a propósito. Las clases y las reglas de care siguen siendo
+semanales.
+
+### Rutas (core, en `CORE_PREFIXES` del test)
+
+`GET /api/admin/special-days` (próximas + último mes), `GET/PUT/DELETE
+/api/admin/special-days/<YYYY-MM-DD>`. El GET sin lista guardada devuelve la
+lista semanal como punto de partida (bus = `arrival_mode != 'dropoff'`). El PUT
+reemplaza la lista entera y publica headcount si la fecha es hoy.
+
+### Frontend
+
+- `web/src/routes/admin/SpecialDays.tsx`, ruta `/special-days`, en Program
+  junto a Calendar, sin módulo.
+- Pantalla del bus: los `on_bus === false` van a una sección "Parent drop-off
+  today", tocables. `schoolProgress` cuenta solo a los del bus, así Submit no
+  los marca "not on the bus". Banner con la nota del día.
+
+### Verificado / falta
+
+`py_compile`, `npx tsc -b`, `npm run build`, los cuatro tests sin DB. **No**
+corrido contra una base (no hay Postgres local). **Falta**: bootear en un
+entorno de prueba, guardar una lista para hoy y mirar bus, My day, headcount y
+operations; `test_tenant_isolation.py`. El calendario (`early_dismissal`) sigue
+sin efecto: no está atado a la lista especial.
+
+---
+
 ## Sesión del 2026-10-20 — retirar desde la lista de clase
 
 Pedido: en My day, tocar el nombre de un chico abre su lista de autorizados y

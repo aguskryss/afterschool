@@ -6,6 +6,7 @@ import {
   Building2,
   CalendarClock,
   CalendarDays,
+  CalendarRange,
   Camera,
   ChartNoAxesColumn,
   ClipboardCheck,
@@ -98,6 +99,9 @@ const GROUPS: { title: string; items: Item[] }[] = [
       // and is what the counselor's own day is filtered out of.
       { to: '/staff-schedule', label: 'Staff schedule', icon: CalendarClock, module: 'daily_ops' },
       { to: '/calendar-admin', label: 'Calendar', icon: CalendarDays, module: 'calendar' },
+      // A one-date roster replacing the weekly one (early dismissals, vacation
+      // days). Not gated: it decides the school-gate list, which is core.
+      { to: '/special-days', label: 'Special days', icon: CalendarRange },
       // The other JCCs' model, and unrelated to Classes above: a drop-off and
       // pickup roster loaded from its own spreadsheet, with Activity times
       // setting that importer's default hours. Nothing in the daily_ops chain
