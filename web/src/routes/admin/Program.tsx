@@ -5,6 +5,8 @@ import { api, ApiError } from '@/lib/api'
 import { confirmDelete, notifyError } from '@/lib/confirm'
 import { DataTable, type Column } from '@/components/DataTable'
 import { Button, Card, Field } from '@/components/ui'
+import { ClassPicker, useClassRosters } from '@/components/ClassPicker'
+import { hasModule } from '@/lib/auth'
 
 /* ── Calendar ────────────────────────────────────────────────────────── */
 
@@ -322,8 +324,10 @@ type Message = {
   subject: string
   body: string
   created_at: string
-  audience_type?: 'all' | 'schools'
+  audience_type?: 'all' | 'schools' | 'classes'
   schools?: string[]
+  /** "Name (Weekday)" for each class a 'classes' broadcast went to. */
+  classes?: string[]
   recipient_count?: number
   read_count?: number
   sender_name?: string | null
@@ -344,21 +348,33 @@ type School = { id: number; name: string }
 function ComposeMessage({ onSent }: { onSent: () => void }) {
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
-  const [toAll, setToAll] = useState(true)
+  const [mode, setMode] = useState<'all' | 'schools' | 'classes'>('all')
   const [schoolIds, setSchoolIds] = useState<number[]>([])
+  const [classIds, setClassIds] = useState<number[]>([])
   const [error, setError] = useState('')
+
+  // Classes only exist with daily_ops; without it the class-sessions route
+  // answers 403, so the option is not offered at all.
+  const classesOn = hasModule('daily_ops')
 
   const { data: schools } = useQuery({
     queryKey: ['admin', 'schools'],
     queryFn: () => api<School[]>('/api/admin/schools'),
   })
+  const { data: classes } = useClassRosters(classesOn && mode === 'classes')
 
-  const audience = toAll
-    ? { audience_type: 'all' as const, school_ids: [] as number[] }
-    : { audience_type: 'schools' as const, school_ids: schoolIds }
+  const audience =
+    mode === 'all'
+      ? { audience_type: 'all' as const, school_ids: [] as number[], class_session_ids: [] as number[] }
+      : mode === 'schools'
+        ? { audience_type: 'schools' as const, school_ids: schoolIds, class_session_ids: [] as number[] }
+        : { audience_type: 'classes' as const, school_ids: [] as number[], class_session_ids: classIds }
+
+  const audienceReady =
+    mode === 'all' || (mode === 'schools' ? schoolIds.length > 0 : classIds.length > 0)
 
   const { data: preview } = useQuery({
-    queryKey: ['admin', 'messages', 'preview', audience.audience_type, schoolIds],
+    queryKey: ['admin', 'messages', 'preview', mode, schoolIds, classIds],
     queryFn: () =>
       // `recipient_count`, not `count`: the server has always named it that,
       // and reading the wrong key rendered "undefined parents" beside the Send
@@ -371,7 +387,7 @@ function ComposeMessage({ onSent }: { onSent: () => void }) {
         method: 'POST',
         body: audience,
       }),
-    enabled: toAll || schoolIds.length > 0,
+    enabled: audienceReady,
   })
 
   const send = useMutation({
@@ -393,7 +409,7 @@ function ComposeMessage({ onSent }: { onSent: () => void }) {
   const ready =
     subject.trim().length > 0 &&
     body.trim().length > 0 &&
-    (toAll || schoolIds.length > 0)
+    audienceReady
 
   return (
     <Card className="mb-4 flex flex-col gap-3 p-5">
@@ -418,8 +434,8 @@ function ComposeMessage({ onSent }: { onSent: () => void }) {
         <label className="flex items-center gap-2 text-[0.9rem] font-semibold text-ink-700">
           <input
             type="radio"
-            checked={toAll}
-            onChange={() => setToAll(true)}
+            checked={mode === 'all'}
+            onChange={() => setMode('all')}
             className="size-4 accent-sky-500"
           />
           Every parent
@@ -427,15 +443,44 @@ function ComposeMessage({ onSent }: { onSent: () => void }) {
         <label className="flex items-center gap-2 text-[0.9rem] font-semibold text-ink-700">
           <input
             type="radio"
-            checked={!toAll}
-            onChange={() => setToAll(false)}
+            checked={mode === 'schools'}
+            onChange={() => setMode('schools')}
             className="size-4 accent-sky-500"
           />
           Pick schools
         </label>
+        {classesOn && (
+          <label className="flex items-center gap-2 text-[0.9rem] font-semibold text-ink-700">
+            <input
+              type="radio"
+              checked={mode === 'classes'}
+              onChange={() => setMode('classes')}
+              className="size-4 accent-sky-500"
+            />
+            Pick classes
+          </label>
+        )}
       </div>
 
-      {!toAll && (
+      {mode === 'classes' && (
+        <>
+          <p className="text-[0.82rem] font-medium text-ink-500">
+            Goes to the families of every child enrolled in the class, on any
+            day of the week — not only the children there today.
+          </p>
+          <ClassPicker
+            classes={classes}
+            selected={classIds}
+            onToggle={(c) =>
+              setClassIds((prev) =>
+                prev.includes(c.id) ? prev.filter((id) => id !== c.id) : [...prev, c.id],
+              )
+            }
+          />
+        </>
+      )}
+
+      {mode === 'schools' && (
         <div className="flex flex-wrap gap-2">
           {(schools ?? []).map((s) => {
             const on = schoolIds.includes(s.id)
@@ -499,7 +544,9 @@ function MessageDetail({ message, onClose }: { message: Message; onClose: () => 
   const audience =
     message.audience_type === 'schools' && message.schools?.length
       ? message.schools.join(', ')
-      : 'Every parent'
+      : message.audience_type === 'classes' && message.classes?.length
+        ? message.classes.join(', ')
+        : 'Every parent'
 
   return (
     <div className="fixed inset-0 z-30 flex justify-end">

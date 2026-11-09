@@ -5947,6 +5947,9 @@ def daily_ops_list_classes():
     if day and day not in daily_routing.WEEKDAYS:
         return jsonify({'error': 'Unknown weekday'}), 400
     include_inactive = request.args.get('include_inactive') == '1'
+    # ?with_children=1 adds the active children's ids, so the photo uploader
+    # can tag a whole class in one tap.
+    with_children = request.args.get('with_children') == '1'
     db = get_db()
     try:
         rows = db.execute(
@@ -5955,18 +5958,32 @@ def daily_ops_list_classes():
                    (SELECT COUNT(*) FROM class_enrollments e
                       JOIN children c ON c.id = e.child_id
                      WHERE e.class_session_id = class_sessions.id
-                       AND c.active = 1) AS enrolled_count
+                       AND c.active = 1) AS enrolled_count,
+                   CASE WHEN %s THEN
+                     (SELECT COALESCE(array_agg(c.id ORDER BY c.id), '{{}}')
+                        FROM class_enrollments e
+                        JOIN children c ON c.id = e.child_id
+                       WHERE e.class_session_id = class_sessions.id
+                         AND c.active = 1)
+                   END AS child_ids
               FROM class_sessions
              WHERE (active OR %s)
                AND (%s IS NULL OR day_of_week = %s)
              ORDER BY array_position(%s::text[], day_of_week),
                       start_time NULLS LAST, lower(name)
             """,
-            (include_inactive, day, day, list(daily_routing.WEEKDAYS))
+            (with_children, include_inactive, day, day,
+             list(daily_routing.WEEKDAYS))
         ).fetchall()
     finally:
         db.close()
-    return jsonify([_class_row(r) for r in rows])
+    out = []
+    for r in rows:
+        row = _class_row(r)
+        if not with_children:
+            row.pop('child_ids', None)
+        out.append(row)
+    return jsonify(out)
 
 
 @app.route('/api/admin/class-sessions', methods=['POST'])
@@ -9685,11 +9702,31 @@ def push_unsubscribe():
 
 # ─── ADMIN → PARENT MESSAGES (INBOX) ────────────────────────────────────────
 
-def _resolve_message_recipients(db, audience_type, school_ids):
+def _resolve_message_recipients(db, audience_type, school_ids, class_ids=None):
     """Return DISTINCT user ids that should receive a message given the
     audience filter. Always restricted to parents who have at least one
     active child in the program — as Contact #1 (parent_id) or a linked
-    Contact #2 (child_contacts.user_id), so a broadcast reaches both."""
+    Contact #2 (child_contacts.user_id), so a broadcast reaches both.
+
+    'classes' is everyone enrolled in the chosen classes, on any weekday: the
+    class as a group, not the roster of whichever day the message goes out."""
+    if audience_type == 'classes':
+        if not class_ids:
+            return []
+        rows = db.execute("""
+            WITH kids AS (
+                SELECT DISTINCT c.id, c.parent_id
+                  FROM class_enrollments e
+                  JOIN children c ON c.id = e.child_id
+                 WHERE c.active = 1 AND e.class_session_id = ANY(%s)
+            )
+            SELECT parent_id AS user_id FROM kids
+            UNION
+            SELECT cc.user_id
+              FROM child_contacts cc JOIN kids k ON k.id = cc.child_id
+             WHERE cc.user_id IS NOT NULL
+        """, (list(class_ids),)).fetchall()
+        return [r['user_id'] for r in rows]
     if audience_type == 'all':
         rows = db.execute("""
             SELECT DISTINCT parent_id AS user_id FROM children WHERE active = 1
@@ -9712,6 +9749,25 @@ def _resolve_message_recipients(db, audience_type, school_ids):
     return [r['user_id'] for r in rows]
 
 
+def _parse_message_audience(data):
+    """(audience_type, school_ids, class_ids, error) from a compose payload.
+
+    Classes only exist with daily_ops, so a 'classes' audience is refused
+    without it rather than resolving to nobody and "sending" to zero parents.
+    """
+    audience_type = data.get('audience_type', 'schools')
+    if audience_type not in ('all', 'schools', 'classes'):
+        return None, None, None, 'Invalid audience_type'
+    try:
+        school_ids = [int(x) for x in (data.get('school_ids') or [])]
+        class_ids = [int(x) for x in (data.get('class_session_ids') or [])]
+    except (TypeError, ValueError):
+        return None, None, None, 'Invalid ids'
+    if audience_type == 'classes' and not module_on('daily_ops'):
+        return None, None, None, 'Classes are not enabled for this program'
+    return audience_type, school_ids, class_ids, None
+
+
 @app.route('/api/admin/messages/preview-count', methods=['POST'])
 @jwt_required()
 def admin_messages_preview_count():
@@ -9721,12 +9777,11 @@ def admin_messages_preview_count():
     if not require_admin():
         return jsonify({'error': 'Unauthorized'}), 403
     data = request.json or {}
-    audience_type = data.get('audience_type', 'schools')
-    school_ids = data.get('school_ids') or []
-    if audience_type not in ('all', 'schools'):
-        return jsonify({'error': 'Invalid audience_type'}), 400
+    audience_type, school_ids, class_ids, err = _parse_message_audience(data)
+    if err:
+        return jsonify({'error': err}), 400
     db = get_db()
-    parent_ids = _resolve_message_recipients(db, audience_type, school_ids)
+    parent_ids = _resolve_message_recipients(db, audience_type, school_ids, class_ids)
     # Parents an audience can never include, because every audience — even
     # "everyone" — is resolved through `children`. A parent added by hand and
     # not yet given a child can be written to individually and will never
@@ -9756,17 +9811,18 @@ def admin_send_message():
     data = request.json or {}
     subject = (data.get('subject') or '').strip()
     body = (data.get('body') or '').strip()
-    audience_type = data.get('audience_type', 'schools')
-    school_ids = data.get('school_ids') or []
+    audience_type, school_ids, class_ids, err = _parse_message_audience(data)
+    if err:
+        return jsonify({'error': err}), 400
 
     if not subject or len(subject) > 200:
         return jsonify({'error': 'Subject is required (max 200 chars)'}), 400
     if not body or len(body) > 4000:
         return jsonify({'error': 'Body is required (max 4000 chars)'}), 400
-    if audience_type not in ('all', 'schools'):
-        return jsonify({'error': 'Invalid audience_type'}), 400
     if audience_type == 'schools' and not school_ids:
         return jsonify({'error': 'Pick at least one school or use audience_type=all'}), 400
+    if audience_type == 'classes' and not class_ids:
+        return jsonify({'error': 'Pick at least one class'}), 400
 
     sender_id = get_jwt_identity()
 
@@ -9783,8 +9839,14 @@ def admin_send_message():
                     "INSERT INTO admin_message_schools (admin_message_id, school_id) VALUES (%s,%s) ON CONFLICT DO NOTHING",
                     (msg_id, int(sid))
                 )
+        if audience_type == 'classes':
+            for cid in class_ids:
+                db.execute(
+                    "INSERT INTO admin_message_classes (admin_message_id, class_session_id) VALUES (%s,%s) ON CONFLICT DO NOTHING",
+                    (msg_id, cid)
+                )
 
-        parent_ids = _resolve_message_recipients(db, audience_type, school_ids)
+        parent_ids = _resolve_message_recipients(db, audience_type, school_ids, class_ids)
 
         # Insert per-recipient copies. Use executemany-style loop; volume is bounded
         # by the size of the parent roster (a few hundred at most for this program),
@@ -10216,7 +10278,14 @@ def admin_list_messages():
                   FROM admin_message_schools ams
                   JOIN schools s ON s.id = ams.school_id
                   WHERE ams.admin_message_id = m.id), '[]'
-               ) AS schools
+               ) AS schools,
+               COALESCE(
+                 (SELECT json_agg(cs.name || ' (' || cs.day_of_week || ')'
+                                  ORDER BY cs.name, cs.day_of_week)
+                  FROM admin_message_classes amc
+                  JOIN class_sessions cs ON cs.id = amc.class_session_id
+                  WHERE amc.admin_message_id = m.id), '[]'
+               ) AS classes
         FROM admin_messages m
         LEFT JOIN users u ON u.id = m.sender_id
         ORDER BY m.created_at DESC
@@ -10229,6 +10298,8 @@ def admin_list_messages():
         d['created_at'] = iso_utc(d['created_at'])
         if isinstance(d['schools'], str):
             d['schools'] = json.loads(d['schools'])
+        if isinstance(d['classes'], str):
+            d['classes'] = json.loads(d['classes'])
         out.append(d)
     return jsonify(out)
 
@@ -11113,6 +11184,66 @@ def counselor_upload_photo():
             owner_id, 'new_photos', '📸 New photos', body, '/app/photos',
         )
     return jsonify([_photo_payload(p) for p in photos]), 201
+
+
+@app.route('/api/counselor/photos/classes', methods=['GET'])
+@jwt_required()
+def counselor_photo_classes():
+    """Every active class with the children a photo uploader may tag in it.
+
+    "Send to a class" for the counselor's photo screen. Any weekday, not just
+    today's: the class is a group, and a photo of the Tuesday art class can be
+    posted on Thursday.
+
+    The children are narrowed to the schools this counselor covers today —
+    the same rule counselor_upload_photo enforces — so tagging a class never
+    produces a 403 for a mixed class. `enrolled_count` is the whole class, so
+    the screen can say when some of it is outside the counselor's schools.
+    Lives under /api/counselor/photos (the photos module); classes themselves
+    are daily_ops, so without it this is an empty list, not a 403.
+    """
+    claims = get_jwt()
+    if claims.get('role') not in ('counselor', 'admin'):
+        return jsonify({'error': 'Unauthorized'}), 403
+    db = get_db()
+    try:
+        if not module_on('daily_ops', db):
+            return jsonify([])
+        school_ids = None
+        if claims.get('role') == 'counselor':
+            school_ids = counselor_school_ids(db, get_jwt_identity(),
+                                              today_for_org(db))
+        rows = db.execute(
+            """
+            SELECT cs.id, cs.name, cs.day_of_week,
+                   to_char(cs.start_time, 'HH24:MI') AS start_time,
+                   COUNT(c.id) AS enrolled_count,
+                   COALESCE(
+                     json_agg(json_build_object('id', c.id, 'name', c.name)
+                              ORDER BY c.name)
+                       FILTER (WHERE c.id IS NOT NULL
+                                 AND (%s::int[] IS NULL OR c.school_id = ANY(%s::int[]))),
+                     '[]') AS children
+              FROM class_sessions cs
+              LEFT JOIN class_enrollments e ON e.class_session_id = cs.id
+              LEFT JOIN children c ON c.id = e.child_id AND c.active = 1
+             WHERE cs.active
+             GROUP BY cs.id
+             ORDER BY array_position(%s::text[], cs.day_of_week),
+                      cs.start_time NULLS LAST, lower(cs.name)
+            """,
+            (school_ids, school_ids, list(daily_routing.WEEKDAYS))
+        ).fetchall()
+    finally:
+        db.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        if isinstance(d['children'], str):
+            d['children'] = json.loads(d['children'])
+        d['child_ids'] = [c['id'] for c in d['children']]
+        out.append(d)
+    return jsonify(out)
 
 
 @app.route('/api/counselor/photos', methods=['GET'])

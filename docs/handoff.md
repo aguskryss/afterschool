@@ -6,6 +6,39 @@ anteriores quedan abajo, no se borran.
 
 ---
 
+## Sesión del 2026-11-09 — mensajes y fotos a una clase
+
+Pedido de la directora: además de "todos" o "por escuela", mandar un mensaje a
+**una clase**, cualquiera (no solo las del día), y lo mismo con fotos.
+
+- **Mensajes**: `audience_type` suma `'classes'` con `class_session_ids`.
+  Destinatarios = padres (Contact #1 y #2 vinculado) de chicos activos con
+  `class_enrollments` en esas clases, de cualquier día de la semana. Tabla
+  `admin_message_classes` (sql/75, rollback sql/76), en `TENANT_TABLES`; el
+  CHECK de `admin_messages.audience_type` se ensancha también en `init_db()`.
+  `'classes'` sin `daily_ops` da 400. El listado devuelve `classes` como
+  "Nombre (Día)".
+- **Fotos**: solo frontend. `GET /api/admin/class-sessions?with_children=1`
+  agrega `child_ids`; "Send to a class" en el uploader del admin taggea a todos
+  los inscriptos (se pueden sacar/agregar a mano). El server sigue viendo
+  `child_ids` comunes, así que la notificación es la de siempre.
+- Componente compartido `web/src/components/ClassPicker.tsx`. Ambos pickers
+  solo aparecen con `hasModule('daily_ops')`.
+
+Verificado: `py_compile`, `npx tsc -b`, `npm run build`, tests sin DB. **No**
+corrido contra una base: falta mandar un mensaje a una clase y mirar el conteo,
+el inbox del padre y `test_tenant_isolation.py`.
+
+**Counselors (segundo pedido, mismo día).** `GET /api/counselor/photos/classes`
+(módulo `photos`; lista vacía sin `daily_ops`) devuelve cada clase activa con
+sus chicos **filtrados a las escuelas que el counselor cubre hoy**
+(`counselor_school_ids`), la misma regla con la que el upload devuelve 403.
+`enrolled_count` es la clase entera, y la pantalla avisa cuántos quedaron
+afuera. Los chicos de la clase que no están en el roster de hoy se suman a los
+chips para poder destaggearlos.
+
+---
+
 ## Sesión del 2026-10-21 — listas especiales por fecha (salida anticipada, vacaciones)
 
 Pedido: una lista temporal de bus para días puntuales en que no vienen todos ni

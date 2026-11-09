@@ -791,7 +791,7 @@ def init_db():
             sender_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
             subject TEXT NOT NULL,
             body TEXT NOT NULL,
-            audience_type TEXT NOT NULL CHECK(audience_type IN ('all','schools')),
+            audience_type TEXT NOT NULL CHECK(audience_type IN ('all','schools','classes')),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -1181,6 +1181,23 @@ def init_db():
             UNIQUE (child_id, class_session_id)
         )
     """)
+
+    # A broadcast to one or more classes (sql/75). Any class in the catalog,
+    # whatever its weekday: the audience is everyone enrolled in it — the
+    # "class group" the director writes to — not who happens to be in the room
+    # on the day the message goes out. The CHECK is widened here for databases
+    # created before 'classes' existed; the CREATE above already has it.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS admin_message_classes (
+            admin_message_id INTEGER NOT NULL REFERENCES admin_messages(id) ON DELETE CASCADE,
+            class_session_id INTEGER NOT NULL REFERENCES class_sessions(id) ON DELETE CASCADE,
+            PRIMARY KEY (admin_message_id, class_session_id)
+        )
+    """)
+    cur.execute("ALTER TABLE admin_messages "
+                "DROP CONSTRAINT IF EXISTS admin_messages_audience_type_check")
+    _add_check(cur, 'admin_messages', 'admin_messages_audience_type_check',
+               "audience_type IN ('all','schools','classes')")
     cur.execute("""
         CREATE INDEX IF NOT EXISTS idx_class_enrollments_session
             ON class_enrollments (class_session_id)

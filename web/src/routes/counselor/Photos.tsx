@@ -4,9 +4,13 @@ import { Camera, ImagePlus, Trash2 } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
 import { downscale } from '@/lib/image'
 import { Button, Card, EmptyState, Skeleton } from '@/components/ui'
+import { ClassPicker, type ClassRoster } from '@/components/ClassPicker'
+import { hasModule } from '@/lib/auth'
 
 type RosterChild = { id: number; name: string }
 type RosterSchool = { school: string; attending: RosterChild[] }
+/** A class with only the children this counselor may tag in it. */
+type PhotoClass = ClassRoster & { children: RosterChild[] }
 
 type Photo = {
   id: number
@@ -43,6 +47,18 @@ export function CounselorPhotos() {
   const [isAlbum, setIsAlbum] = useState(false)
   const [albumName, setAlbumName] = useState('')
   const [error, setError] = useState('')
+  const [classIds, setClassIds] = useState<number[]>([])
+  const [showClasses, setShowClasses] = useState(false)
+
+  // Classes are daily_ops; the endpoint sits under the photos module and
+  // narrows each class to the schools this counselor covers, the same rule
+  // the upload enforces, so tagging a class never bounces with a 403.
+  const classesOn = hasModule('daily_ops')
+  const { data: classes } = useQuery({
+    queryKey: ['counselor', 'photo-classes'],
+    queryFn: () => api<PhotoClass[]>('/api/counselor/photos/classes'),
+    enabled: classesOn && showClasses,
+  })
 
   const { data: roster } = useQuery({
     queryKey: ['counselor', 'roster', date],
@@ -63,11 +79,48 @@ export function CounselorPhotos() {
       ),
   })
 
-  const children = (roster ?? []).flatMap((s) => s.attending)
+  // Today's roster, plus anyone a picked class brought in who is not here
+  // today — the class is any weekday's, so its children may not be.
+  const rosterChildren = (roster ?? []).flatMap((s) => s.attending)
+  const children = [
+    ...rosterChildren,
+    ...(classes ?? [])
+      .filter((k) => classIds.includes(k.id))
+      .flatMap((k) => k.children)
+      .filter(
+        (c, i, all) =>
+          !rosterChildren.some((r) => r.id === c.id) &&
+          all.findIndex((x) => x.id === c.id) === i,
+      ),
+  ]
+
+  const toggleClass = (c: ClassRoster) => {
+    if (classIds.includes(c.id)) {
+      const remaining = classIds.filter((id) => id !== c.id)
+      const kept = new Set(
+        (classes ?? [])
+          .filter((k) => remaining.includes(k.id))
+          .flatMap((k) => k.child_ids),
+      )
+      setClassIds(remaining)
+      setTagged((prev) => prev.filter((id) => !c.child_ids.includes(id) || kept.has(id)))
+    } else {
+      setClassIds((prev) => [...prev, c.id])
+      setTagged((prev) => [...new Set([...prev, ...c.child_ids])])
+    }
+  }
+
+  const pickedClasses = (classes ?? []).filter((k) => classIds.includes(k.id))
+  const outsideSchools = pickedClasses.reduce(
+    (n, k) => n + (k.enrolled_count - k.child_ids.length),
+    0,
+  )
 
   const reset = () => {
     setFiles([])
     setTagged([])
+    setClassIds([])
+    setShowClasses(false)
     setCaption('')
     setIsAlbum(false)
     setAlbumName('')
@@ -185,6 +238,39 @@ export function CounselorPhotos() {
             <p className="mb-2 text-[0.8rem] font-extrabold tracking-wide text-ink-400 uppercase">
               {files.length === 1 ? 'Who is in it?' : 'Who is in these?'}
             </p>
+            {classesOn && (
+              <div className="mb-3 rounded-2xl border border-canvas-200 p-3">
+                <button
+                  type="button"
+                  onClick={() => setShowClasses((v) => !v)}
+                  className="text-[0.88rem] font-bold text-grape-600"
+                >
+                  {showClasses ? 'Hide classes' : 'Send to a class'}
+                  {classIds.length > 0 ? ` (${classIds.length} picked)` : ''}
+                </button>
+                {showClasses && (
+                  <div className="mt-2">
+                    <p className="mb-2 text-[0.8rem] font-medium text-ink-400">
+                      Tags every child in the class, whatever day it meets.
+                      Tap a name below to untag someone.
+                    </p>
+                    <ClassPicker
+                      classes={classes}
+                      selected={classIds}
+                      onToggle={toggleClass}
+                      accent="grape"
+                    />
+                    {outsideSchools > 0 && (
+                      <p className="mt-2 text-[0.8rem] font-semibold text-sun-700">
+                        {outsideSchools}{' '}
+                        {outsideSchools === 1 ? 'child is' : 'children are'} from
+                        a school you don't cover and won't be tagged.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             {children.length === 0 ? (
               <p className="mb-3 text-[0.85rem] font-medium text-ink-500">
                 Nobody is on today's roster, so there is no one to tag yet.

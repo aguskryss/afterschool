@@ -6,6 +6,8 @@ import { confirmDelete } from '@/lib/confirm'
 import { Button, Card, EmptyState, Skeleton } from '@/components/ui'
 import { downscale } from '@/lib/image'
 import { matchesName } from '@/lib/roster'
+import { hasModule } from '@/lib/auth'
+import { ClassPicker, useClassRosters, type ClassRoster } from '@/components/ClassPicker'
 
 type Photo = {
   id: number
@@ -96,6 +98,31 @@ function Uploader({ date, onDone }: { date: string; onDone: () => void }) {
   const [albumName, setAlbumName] = useState('')
   const [query, setQuery] = useState('')
   const [error, setError] = useState('')
+  const [classIds, setClassIds] = useState<number[]>([])
+  const [showClasses, setShowClasses] = useState(false)
+
+  // Tagging a class is a shortcut for tagging every child enrolled in it —
+  // the server still sees plain child_ids, so who gets notified works exactly
+  // as for a hand-tagged photo. daily_ops only: the route 403s without it.
+  const classesOn = hasModule('daily_ops')
+  const { data: classes } = useClassRosters(classesOn && showClasses)
+
+  const toggleClass = (c: ClassRoster) => {
+    if (classIds.includes(c.id)) {
+      const remaining = classIds.filter((id) => id !== c.id)
+      // Keep a child another still-selected class covers.
+      const kept = new Set(
+        (classes ?? [])
+          .filter((k) => remaining.includes(k.id))
+          .flatMap((k) => k.child_ids),
+      )
+      setClassIds(remaining)
+      setTagged((prev) => prev.filter((id) => !c.child_ids.includes(id) || kept.has(id)))
+    } else {
+      setClassIds((prev) => [...prev, c.id])
+      setTagged((prev) => [...new Set([...prev, ...c.child_ids])])
+    }
+  }
 
   // Same key the People and Conversations screens use, so this is served from
   // cache rather than being a third request for the same roster.
@@ -125,6 +152,7 @@ function Uploader({ date, onDone }: { date: string; onDone: () => void }) {
   // counselor_upload_photo), so this is the one flip that makes "everyone"
   // reuse that exact path instead of needing a second notification route.
   const toggleBroadcast = () => {
+    setClassIds([])
     if (broadcast) {
       setBroadcast(false)
       setTagged([])
@@ -138,6 +166,8 @@ function Uploader({ date, onDone }: { date: string; onDone: () => void }) {
   const reset = () => {
     setFiles([])
     setTagged([])
+    setClassIds([])
+    setShowClasses(false)
     setBroadcast(false)
     setCaption('')
     setIsAlbum(false)
@@ -276,6 +306,33 @@ function Uploader({ date, onDone }: { date: string; onDone: () => void }) {
             </p>
           ) : (
             <>
+              {classesOn && (
+                <div className="mb-3 rounded-2xl border-2 border-canvas-200 p-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowClasses((v) => !v)}
+                    className="text-[0.88rem] font-bold text-grape-600"
+                  >
+                    {showClasses ? 'Hide classes' : 'Send to a class'}
+                    {classIds.length > 0 ? ` (${classIds.length} picked)` : ''}
+                  </button>
+                  {showClasses && (
+                    <div className="mt-2">
+                      <p className="mb-2 text-[0.8rem] font-medium text-ink-400">
+                        Tags every child enrolled in the class, whatever day it
+                        meets. You can still remove or add children below.
+                      </p>
+                      <ClassPicker
+                        classes={classes}
+                        selected={classIds}
+                        onToggle={toggleClass}
+                        accent="grape"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
               {chosen.length > 0 && (
                 <div className="mb-2 flex flex-wrap gap-1.5">
                   {chosen.map((c) => (

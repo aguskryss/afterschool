@@ -388,6 +388,7 @@ TENANT_TABLES = (
     'activity_roster_overrides',
     'admin_messages',
     'admin_message_schools',
+    'admin_message_classes',
     'parent_messages',
     'parent_threads',
     'thread_messages',
