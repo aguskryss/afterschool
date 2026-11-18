@@ -6,6 +6,38 @@ anteriores quedan abajo, no se borran.
 
 ---
 
+## Sesión del 2026-11-17 — anular una salida registrada por error
+
+Pedido del cliente: si un counselor registra la salida del chico equivocado,
+poder revertirla desde el admin. Antes era imposible: el chico figuraba como
+retirado en todas las pantallas y el release correcto daba 409 por
+`UNIQUE (child_id, release_date)`. Decisiones (con el usuario): **solo admin**,
+y **al padre no se le avisa de la anulación**, solo del release correcto (el
+push `pickup_released` de siempre).
+
+- **`pickup_release_voids`** — sql/77 (rollback sql/78), en `TENANT_TABLES` y
+  espejada en `init_db()`. Anular **mueve** la fila entera (firma incluida) de
+  `pickup_releases` a esta tabla, con `voided_by`, `voided_by_name` y
+  `void_reason` (obligatorio). Tabla aparte en vez de columna `voided_at` para
+  no tocar el UNIQUE: todo lector de `pickup_releases` sigue significando "el
+  release vigente", y un contenedor viejo durante el deploy rolling sigue
+  infiriendo su `ON CONFLICT (child_id, release_date)`.
+- **`POST /api/admin/pickup-releases/<id>/void`** `{reason}`: en una
+  transacción copia, borra y vuelve la asistencia a presente
+  (`checked_out_at = NULL`, status `picked_up` si `on_bus`, si no `waiting`;
+  `checked_in_at` intacto). Publica headcount si es de hoy. Sin push.
+- `GET /api/admin/pickup-releases` devuelve además `voided`;
+  `GET /api/admin/pickup-releases/voided/<id>/signature` para ver la firma
+  anulada. Todo bajo el prefijo ya mapeado a `secure_pickup`.
+- Frontend: `PickupLog.tsx` — "Void this pickup" en el modal del release (pide
+  motivo) y sección "Voided pickups" debajo de la tabla.
+
+Verificado: `py_compile`, `npx tsc -b`, `npm run build`, tests sin DB. **No**
+corrido contra una base: falta `tests/test_pickup_void.py` (nuevo) y
+`test_tenant_isolation.py`.
+
+---
+
 ## Sesión del 2026-11-09 — mensajes y fotos a una clase
 
 Pedido de la directora: además de "todos" o "por escuela", mandar un mensaje a

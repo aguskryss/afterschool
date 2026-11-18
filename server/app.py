@@ -12685,6 +12685,27 @@ def admin_list_pickup_releases():
         sql += " ORDER BY r.released_at DESC LIMIT %s"
         params.append(MAX_RELEASE_ROWS + 1)
         rows = db.execute(sql, tuple(params)).fetchall()
+
+        # Voided releases, listed apart so the table above stays "what
+        # happened" and these stay visible as "what was recorded by mistake".
+        void_sql = """
+            SELECT v.id, v.release_id, v.child_id, c.name AS child_name,
+                   s.name AS school, v.person_name, v.person_relationship,
+                   v.counselor_name, v.release_date, v.released_at,
+                   v.voided_at, v.voided_by_name, v.void_reason,
+                   v.signature IS NOT NULL AS has_signature
+              FROM pickup_release_voids v
+              JOIN children c ON c.id = v.child_id
+              JOIN schools s ON s.id = c.school_id
+             WHERE v.release_date BETWEEN %s AND %s
+        """
+        void_params = [start, end]
+        if school_id:
+            void_sql += " AND c.school_id = %s"
+            void_params.append(school_id)
+        void_sql += " ORDER BY v.voided_at DESC LIMIT %s"
+        void_params.append(MAX_RELEASE_ROWS)
+        voided = db.execute(void_sql, tuple(void_params)).fetchall()
     finally:
         db.close()
 
@@ -12711,6 +12732,22 @@ def admin_list_pickup_releases():
             'dismissal_time': r['dismissal_time'],
             'has_signature': r['has_signature'],
         } for r in rows],
+        'voided': [{
+            'id': v['id'],
+            'release_id': v['release_id'],
+            'child_id': v['child_id'],
+            'child_name': v['child_name'],
+            'school': v['school'],
+            'person_name': v['person_name'],
+            'person_relationship': v['person_relationship'],
+            'counselor_name': v['counselor_name'],
+            'release_date': v['release_date'],
+            'released_at': iso_utc(v['released_at']),
+            'voided_at': iso_utc(v['voided_at']),
+            'voided_by_name': v['voided_by_name'],
+            'void_reason': v['void_reason'],
+            'has_signature': v['has_signature'],
+        } for v in voided],
         'truncated': truncated,
         'start': start,
         'end': end,
@@ -12761,6 +12798,155 @@ def admin_get_pickup_signature(release_id):
         'released_at': iso_utc(row['released_at']),
         # None for releases recorded before signatures existed. The client says
         # so rather than rendering an empty frame.
+        'signature': signature,
+    })
+
+
+MAX_VOID_REASON = 500
+
+
+@app.route('/api/admin/pickup-releases/<int:release_id>/void', methods=['POST'])
+@jwt_required()
+def admin_void_pickup_release(release_id):
+    """Void a release recorded by mistake — the wrong child tapped at pickup.
+
+    Admin only, and a reason is required: this takes back a signed record, so
+    it leaves one of its own. Nothing is deleted outright. The release moves
+    whole, signature included, into pickup_release_voids beside who voided it
+    and why, and the child's day goes back to "present", so every screen shows
+    them in the building again and the correct release can be recorded with
+    the normal flow.
+
+    Deliberately silent toward the family. The parent hears about the release
+    that actually happens, through the usual pickup_released push — not about
+    the correction.
+    """
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    data = request.json or {}
+    reason = (data.get('reason') or '').strip()
+    if not reason:
+        return jsonify({'error': 'A reason is required to void a pickup.'}), 400
+    if len(reason) > MAX_VOID_REASON:
+        return jsonify({'error': f'Keep the reason under {MAX_VOID_REASON} characters.'}), 400
+
+    admin_id = _current_user_id()
+    admin_name = get_jwt().get('name')
+
+    db = get_db_transaction()
+    try:
+        # FOR UPDATE so two admins voiding the same row at once cannot both
+        # copy it: the second waits, then finds it gone.
+        release = db.execute("""
+            SELECT r.id, r.child_id, r.release_date, c.name AS child_name
+              FROM pickup_releases r
+              JOIN children c ON c.id = r.child_id
+             WHERE r.id = %s
+             FOR UPDATE OF r
+        """, (release_id,)).fetchone()
+        if not release:
+            db.rollback()
+            return jsonify({'error': 'That pickup was not found, or was already voided.'}), 404
+
+        if not admin_name:
+            who = db.execute("SELECT name FROM users WHERE id = %s",
+                             (admin_id,)).fetchone()
+            admin_name = (who and who['name']) or 'Admin'
+
+        void = db.execute("""
+            INSERT INTO pickup_release_voids
+                (release_id, child_id, person_id, person_name,
+                 person_relationship, counselor_id, counselor_name,
+                 release_date, released_at, signature, signature_mime,
+                 voided_by, voided_by_name, void_reason)
+            SELECT id, child_id, person_id, person_name,
+                   person_relationship, counselor_id, counselor_name,
+                   release_date, released_at, signature, signature_mime,
+                   %s, %s, %s
+              FROM pickup_releases WHERE id = %s
+            RETURNING id, voided_at
+        """, (admin_id, admin_name, reason, release_id)).fetchone()
+        db.execute("DELETE FROM pickup_releases WHERE id = %s", (release_id,))
+
+        # Back to present. on_bus still says whether they had been marked in
+        # (a release never changes it on an existing row), so the status comes
+        # from it the same way the attendance tap derives it. checked_in_at is
+        # left alone: the arrival time was real.
+        db.execute("""
+            UPDATE attendance_records
+               SET checked_out_at = NULL,
+                   status = CASE WHEN on_bus = 1 THEN %s ELSE %s END,
+                   status_at = CURRENT_TIMESTAMP,
+                   status_by = %s,
+                   status_note = NULL
+             WHERE child_id = %s AND attendance_date = %s
+        """, (STATUS_PICKED_UP, STATUS_WAITING, admin_id,
+              release['child_id'], release['release_date']))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"[ERROR] admin_void_pickup_release: {e}")
+        return jsonify({'error': 'Could not void that pickup'}), 500
+    finally:
+        db.close()
+
+    if release['release_date'] == today_for_org():
+        _publish_headcount(release['release_date'])
+
+    return jsonify({
+        'void_id': void['id'],
+        'release_id': release_id,
+        'child_id': release['child_id'],
+        'child_name': release['child_name'],
+        'release_date': release['release_date'],
+        'voided_at': iso_utc(void['voided_at']),
+        'voided_by_name': admin_name,
+        'void_reason': reason,
+    })
+
+
+@app.route('/api/admin/pickup-releases/voided/<int:void_id>/signature', methods=['GET'])
+@jwt_required()
+def admin_get_voided_pickup_signature(void_id):
+    """The signature on a voided release — kept, so the mistake can be read
+    back later exactly as it was recorded."""
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    db = get_db()
+    try:
+        row = db.execute("""
+            SELECT v.signature, v.signature_mime, v.person_name,
+                   v.person_relationship, v.counselor_name, v.released_at,
+                   v.voided_at, v.voided_by_name, v.void_reason,
+                   c.name AS child_name
+              FROM pickup_release_voids v
+              JOIN children c ON c.id = v.child_id
+             WHERE v.id = %s
+        """, (void_id,)).fetchone()
+    finally:
+        db.close()
+
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+
+    signature = None
+    if row['signature'] is not None:
+        mime = row['signature_mime'] or 'image/png'
+        encoded = base64.b64encode(bytes(row['signature'])).decode('ascii')
+        signature = f'data:{mime};base64,{encoded}'
+
+    return jsonify({
+        'id': void_id,
+        'child_name': row['child_name'],
+        'person_name': row['person_name'],
+        'person_relationship': row['person_relationship'],
+        'counselor_name': row['counselor_name'],
+        'released_at': iso_utc(row['released_at']),
+        'voided_at': iso_utc(row['voided_at']),
+        'voided_by_name': row['voided_by_name'],
+        'void_reason': row['void_reason'],
         'signature': signature,
     })
 

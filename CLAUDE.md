@@ -23,7 +23,7 @@ siempre la respuesta completa a "¿de quién es esta fila?".
 ## 2. Stack
 
 - **Backend**: Flask 3.1 (Python 3.11), `flask-jwt-extended`, `bcrypt`, `psycopg2`, `gunicorn`. Punto de entrada: `server/app.py` (~8,050 líneas, 146 rutas `/api/*`), más el blueprint `server/superadmin.py` (10 rutas bajo `/api/superadmin`).
-- **DB**: PostgreSQL en Supabase (session-mode pooler). Schema en `server/database.py` + `server/tenancy.py`: **45 tablas, 43 con RLS activa** (las dos sin RLS son `app_settings` y `login_attempts`, globales a propósito).
+- **DB**: PostgreSQL en Supabase (session-mode pooler). Schema en `server/database.py` + `server/tenancy.py`: **46 tablas, 44 con RLS activa** (las dos sin RLS son `app_settings` y `login_attempts`, globales a propósito).
 - **Frontend**: SPA React 19 + Vite 8 + TypeScript + Tailwind 4 en `web/`, compilada a `public/app` y servida por Flask en `/app/*`. Service worker en `public/sw.js`.
 - **Legacy**: `public/admin/index.html` sigue vivo — activity-roster y end-of-year no están reconstruidos. Adopta la sesión de la SPA (`kikar_auth`) para no pedir login dos veces.
 - **Hosting**: Render (`render.yaml`).
@@ -79,6 +79,7 @@ python3 tests/test_conversation_stream.py   # guardas del SSE de mensajería
 python3 tests/test_push_tenancy.py          # el push corre con organización pineada
 python3 tests/test_notification_settings.py # preferencias de notificación y el scheduler
 python3 tests/test_child_status.py
+python3 tests/test_pickup_void.py           # anular un retiro registrado por error
 python3 tests/test_operations_board.py
 python3 tests/test_roster_staging.py
 ```

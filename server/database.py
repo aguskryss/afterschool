@@ -755,6 +755,39 @@ def init_db():
     cur.execute("ALTER TABLE pickup_releases ADD COLUMN IF NOT EXISTS signature BYTEA")
     cur.execute("ALTER TABLE pickup_releases ADD COLUMN IF NOT EXISTS signature_mime TEXT")
 
+    # sql/77_add_pickup_release_voids.sql. A release recorded by mistake (the
+    # wrong child tapped in the carpool line) is voided by an admin, never
+    # edited or deleted: the row moves here whole, signature included, next to
+    # who voided it and why. It moves rather than being flagged in place so
+    # pickup_releases keeps its plain UNIQUE (child_id, release_date) — every
+    # reader of that table still means "the release that stands", and the
+    # correct release can be recorded right after without a partial index
+    # that an older container's ON CONFLICT could not infer.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS pickup_release_voids (
+            id SERIAL PRIMARY KEY,
+            release_id INTEGER NOT NULL,
+            child_id INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+            person_id INTEGER REFERENCES authorized_pickup_people(id) ON DELETE SET NULL,
+            person_name TEXT NOT NULL,
+            person_relationship TEXT,
+            counselor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            counselor_name TEXT NOT NULL,
+            release_date TEXT NOT NULL,
+            released_at TIMESTAMP,
+            signature BYTEA,
+            signature_mime TEXT,
+            voided_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            voided_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            voided_by_name TEXT NOT NULL,
+            void_reason TEXT NOT NULL CHECK (btrim(void_reason) <> '')
+        )
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pickup_release_voids_date "
+        "ON pickup_release_voids(release_date)"
+    )
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS activities (
             id SERIAL PRIMARY KEY,

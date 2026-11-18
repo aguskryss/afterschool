@@ -1,11 +1,11 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { ShieldCheck, X } from 'lucide-react'
-import { api } from '@/lib/api'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ShieldCheck, Undo2, X } from 'lucide-react'
+import { api, ApiError } from '@/lib/api'
 import { DataTable, type Column } from '@/components/DataTable'
 import { ExportButton } from '@/components/ExportButton'
 import { dismissalLabel } from '@/components/ChildStatus'
-import { Pill } from '@/components/ui'
+import { Button, Pill } from '@/components/ui'
 
 type Release = {
   id: number
@@ -51,7 +51,31 @@ type ReleaseDetail = {
   released_at: string
   /** null for releases recorded before signatures were captured. */
   signature: string | null
+  /** Only on a voided release. */
+  voided_at?: string
+  voided_by_name?: string
+  void_reason?: string
 }
+
+/** A release an admin voided — recorded by mistake, kept as it was. */
+type VoidedRelease = {
+  id: number
+  release_id: number
+  child_id: number
+  child_name: string
+  school: string
+  person_name: string
+  person_relationship: string | null
+  counselor_name: string
+  release_date: string
+  released_at: string
+  voided_at: string
+  voided_by_name: string
+  void_reason: string
+  has_signature: boolean
+}
+
+type Opened = { kind: 'release' | 'voided'; id: number }
 
 const toIso = (d: Date) => d.toISOString().slice(0, 10)
 
@@ -63,18 +87,119 @@ function timeOf(iso: string | null): string {
   })
 }
 
-/** The signature, fetched only when an admin opens one record. */
-function SignatureModal({
+/**
+ * Take back a release recorded by mistake. A reason is required — this
+ * undoes a signed record, so it leaves one of its own. The family is not
+ * told; they hear about the release that actually happens.
+ */
+function VoidRelease({
   releaseId,
-  onClose,
+  childName,
+  onVoided,
 }: {
   releaseId: number
+  childName: string
+  onVoided: () => void
+}) {
+  const qc = useQueryClient()
+  const [confirming, setConfirming] = useState(false)
+  const [reason, setReason] = useState('')
+
+  const voidIt = useMutation({
+    mutationFn: () =>
+      api(`/api/admin/pickup-releases/${releaseId}/void`, {
+        method: 'POST',
+        body: { reason: reason.trim() },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'pickup-releases'] })
+      onVoided()
+    },
+  })
+
+  if (!confirming) {
+    return (
+      <div className="mt-4 flex justify-end">
+        <Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
+          <Undo2 className="size-4" strokeWidth={2.4} />
+          Void this pickup
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 rounded-2xl bg-berry-50 p-4">
+      <p className="text-[0.88rem] font-bold text-berry-700">
+        Void this pickup?
+      </p>
+      <p className="mt-1 text-[0.82rem] font-medium text-ink-600">
+        {childName} will show as still in the building, and the correct pickup
+        can be recorded as usual. This record and its signature are kept under
+        “Voided pickups”. The family is not notified.
+      </p>
+      <label className="mt-3 flex flex-col gap-1 text-[0.8rem] font-bold text-ink-600">
+        Reason
+        <textarea
+          rows={2}
+          maxLength={500}
+          value={reason}
+          autoFocus
+          placeholder="e.g. Wrong child selected — it was their sibling"
+          onChange={(e) => setReason(e.target.value)}
+          className="rounded-2xl border-2 border-canvas-200 bg-white px-4 py-2.5 text-[0.9rem] font-medium text-ink-900 outline-none focus:border-sky-500"
+        />
+      </label>
+      {voidIt.error && (
+        <p className="mt-2 text-[0.82rem] font-semibold text-berry-600">
+          {voidIt.error instanceof ApiError
+            ? voidIt.error.message
+            : 'Could not void that pickup.'}
+        </p>
+      )}
+      <div className="mt-3 flex justify-end gap-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setConfirming(false)
+            setReason('')
+            voidIt.reset()
+          }}
+        >
+          Cancel
+        </Button>
+        <Button
+          variant="danger"
+          size="sm"
+          disabled={!reason.trim()}
+          loading={voidIt.isPending}
+          onClick={() => voidIt.mutate()}
+        >
+          Void pickup
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/** The signature, fetched only when an admin opens one record. */
+function SignatureModal({
+  opened,
+  onClose,
+}: {
+  opened: Opened
   onClose: () => void
 }) {
+  const { kind, id } = opened
   const { data, isPending } = useQuery({
-    queryKey: ['admin', 'pickup-signature', releaseId],
+    queryKey: ['admin', 'pickup-signature', kind, id],
     queryFn: () =>
-      api<ReleaseDetail>(`/api/admin/pickup-releases/${releaseId}/signature`),
+      api<ReleaseDetail>(
+        kind === 'voided'
+          ? `/api/admin/pickup-releases/voided/${id}/signature`
+          : `/api/admin/pickup-releases/${id}/signature`,
+      ),
   })
 
   return (
@@ -102,9 +227,20 @@ function SignatureModal({
           <p className="text-[0.88rem] font-semibold text-ink-400">Loading…</p>
         ) : (
           <>
-            <h2 className="text-[1.1rem] font-extrabold text-ink-900">
+            <h2 className="flex items-center gap-2 text-[1.1rem] font-extrabold text-ink-900">
               {data.child_name}
+              {kind === 'voided' && <Pill status="berry">Voided</Pill>}
             </h2>
+            {kind === 'voided' && data.voided_at && (
+              <p className="mt-2 rounded-2xl bg-berry-50 px-3 py-2 text-[0.82rem] font-semibold text-berry-700">
+                Voided by {data.voided_by_name} on{' '}
+                {new Date(data.voided_at).toLocaleString('en-US', {
+                  dateStyle: 'medium',
+                  timeStyle: 'short',
+                })}
+                : <span className="font-medium">{data.void_reason}</span>
+              </p>
+            )}
             <p className="mt-0.5 text-[0.88rem] font-semibold text-ink-600">
               Collected by {data.person_name}
               {data.person_relationship && (
@@ -135,6 +271,14 @@ function SignatureModal({
                 This pickup was recorded before signatures were captured.
               </p>
             )}
+
+            {kind === 'release' && (
+              <VoidRelease
+                releaseId={id}
+                childName={data.child_name}
+                onVoided={onClose}
+              />
+            )}
           </>
         )}
       </div>
@@ -145,26 +289,30 @@ function SignatureModal({
 /**
  * The permanent record of who collected which child, and their signature.
  *
- * Read-only by design. Nothing in the app edits or deletes a release — the
- * value of this screen is that what it shows is what happened.
+ * Nothing here edits or deletes a release. The one correction is voiding a
+ * release recorded by mistake, and that moves it — signature, reason and who
+ * voided it — into the "Voided pickups" list below rather than erasing it.
  */
 export function AdminPickupLog() {
   const [end, setEnd] = useState(() => toIso(new Date()))
   const [start, setStart] = useState(() =>
     toIso(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),
   )
-  const [open, setOpen] = useState<number | null>(null)
+  const [open, setOpen] = useState<Opened | null>(null)
 
   const range = `start=${start}&end=${end}`
   const { data, isPending } = useQuery({
     queryKey: ['admin', 'pickup-releases', start, end],
     queryFn: () =>
-      api<{ releases: Release[]; truncated: boolean }>(
-        `/api/admin/pickup-releases?${range}`,
-      ),
+      api<{
+        releases: Release[]
+        voided: VoidedRelease[]
+        truncated: boolean
+      }>(`/api/admin/pickup-releases?${range}`),
   })
 
   const rows = data?.releases ?? []
+  const voided = data?.voided ?? []
 
   const columns: Column<Release>[] = [
     { key: 'release_date', header: 'Date' },
@@ -271,7 +419,7 @@ export function AdminPickupLog() {
         emptyIcon={<ShieldCheck className="size-7" strokeWidth={1.8} />}
         emptyTitle="No pickups recorded"
         emptyBody="Nothing has been released in this date range."
-        onRowClick={(r) => setOpen(r.id)}
+        onRowClick={(r) => setOpen({ kind: 'release', id: r.id })}
         actions={
           <ExportButton
             path={`/api/admin/export/pickup-releases?${range}`}
@@ -280,8 +428,41 @@ export function AdminPickupLog() {
         }
       />
 
+      {voided.length > 0 && (
+        <section className="mt-8">
+          <h2 className="mb-1 text-[1.1rem] font-extrabold text-ink-900">
+            Voided pickups
+          </h2>
+          <p className="mb-3 text-[0.85rem] font-medium text-ink-500">
+            Pickups recorded by mistake and voided by an admin. Kept as they
+            were recorded, with the reason.
+          </p>
+          <ul className="divide-y divide-canvas-200 overflow-hidden rounded-card border border-canvas-200 bg-white">
+            {voided.map((v) => (
+              <li key={v.id}>
+                <button
+                  type="button"
+                  onClick={() => setOpen({ kind: 'voided', id: v.id })}
+                  className="flex w-full flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-3 text-left hover:bg-canvas-100"
+                >
+                  <span className="text-[0.85rem] font-semibold text-ink-500">
+                    {v.release_date}
+                  </span>
+                  <span className="text-[0.9rem] font-bold text-ink-400 line-through">
+                    {v.child_name} · {v.person_name} · {timeOf(v.released_at)}
+                  </span>
+                  <span className="text-[0.82rem] font-medium text-ink-600">
+                    Voided by {v.voided_by_name}: {v.void_reason}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {open !== null && (
-        <SignatureModal releaseId={open} onClose={() => setOpen(null)} />
+        <SignatureModal opened={open} onClose={() => setOpen(null)} />
       )}
     </div>
   )

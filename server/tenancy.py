@@ -381,6 +381,8 @@ TENANT_TABLES = (
     'pickup_claim_audit',
     'authorized_pickup_people',
     'pickup_releases',
+    # Releases an admin voided (sql/77) — the same signed record, moved aside.
+    'pickup_release_voids',
     'activities',
     'activity_schedules',
     'activity_roster',
