@@ -183,6 +183,23 @@ def registrations_for_date(db, date_str):
                  WHERE sd.id = {int(special['id'])})"""
 
 
+def cancelled_class_ids(db, on_date):
+    """The classes called off on one date (sql/79), as a set of ids.
+
+    Empty without a date: the weekly template never has a cancellation in it.
+    Every date-bound view drops these classes — the routing engine, so their
+    children fall into care by grade, and the staff resolution, so whoever was
+    running one is free that day.
+    """
+    if on_date is None:
+        return set()
+    return {r['class_session_id'] for r in db.execute(
+        "SELECT class_session_id FROM class_cancellations "
+        " WHERE cancel_date = %s::date",
+        (str(on_date),)
+    ).fetchall()}
+
+
 def special_day_note(db, date_str):
     """{'note': ...} when the date has its own list, else None."""
     row = db.execute(
@@ -6135,6 +6152,101 @@ def daily_ops_delete_class(class_id):
     return jsonify({'deleted': True})
 
 
+MAX_CANCEL_REASON = 300
+
+
+@app.route('/api/admin/class-sessions/<int:class_id>/cancellations', methods=['POST'])
+@jwt_required()
+def daily_ops_cancel_class(class_id):
+    """Call off one class on one date, past or future.
+
+    Nothing about the class or its roster changes: the date simply runs
+    without it (see cancelled_class_ids). Its children wait in their grade's
+    care room for those hours, and its staff are free that day. The families
+    are not notified — the program decided this, and nothing changes for the
+    parent at pickup.
+
+    The date has to fall on the class's own weekday: cancelling a Tuesday
+    class on a Wednesday would be a row that never takes effect. Cancelling
+    again just updates the reason.
+    """
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    data = request.json or {}
+    on_date, error = _parse_day(data.get('date'))
+    if error or on_date is None:
+        return jsonify({'error': error or 'date is required'}), 400
+    reason = (data.get('reason') or '').strip() or None
+    if reason and len(reason) > MAX_CANCEL_REASON:
+        return jsonify({'error': f'Keep the reason under {MAX_CANCEL_REASON} characters.'}), 400
+
+    db = get_db()
+    try:
+        session = db.execute(
+            "SELECT id, name, day_of_week, active FROM class_sessions WHERE id = %s",
+            (class_id,)
+        ).fetchone()
+        if not session:
+            return jsonify({'error': 'Unknown class'}), 404
+        if not session['active']:
+            return jsonify({'error': f"\"{session['name']}\" is archived."}), 409
+        if _weekday_name(on_date) != session['day_of_week']:
+            return jsonify({'error': (
+                f"\"{session['name']}\" runs on {session['day_of_week']}s, and "
+                f"{on_date.isoformat()} is a {_weekday_name(on_date)}.")}), 400
+        row = db.execute(
+            """
+            INSERT INTO class_cancellations
+                (class_session_id, cancel_date, reason, cancelled_by)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (class_session_id, cancel_date)
+            DO UPDATE SET reason = EXCLUDED.reason
+            RETURNING id, cancelled_at
+            """,
+            (class_id, on_date, reason, _current_user_id())
+        ).fetchone()
+    finally:
+        db.close()
+
+    return jsonify({
+        'id': row['id'],
+        'class_id': class_id,
+        'name': session['name'],
+        'date': on_date.isoformat(),
+        'reason': reason,
+        'cancelled_at': iso_utc(row['cancelled_at']),
+    }), 201
+
+
+@app.route('/api/admin/class-sessions/<int:class_id>/cancellations/<date_str>',
+           methods=['DELETE'])
+@jwt_required()
+def daily_ops_restore_class(class_id, date_str):
+    """Take back a cancellation: the class runs on that date after all, with
+    its roster and its staff exactly as the week has them."""
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    on_date, error = _parse_day(date_str)
+    if error or on_date is None:
+        return jsonify({'error': error or 'date is required'}), 400
+    db = get_db()
+    try:
+        gone = db.execute(
+            """
+            DELETE FROM class_cancellations
+             WHERE class_session_id = %s AND cancel_date = %s
+            RETURNING id
+            """,
+            (class_id, on_date)
+        ).fetchone()
+    finally:
+        db.close()
+    if not gone:
+        return jsonify({'error': 'That class is not cancelled on that date'}), 404
+    return jsonify({'restored': True, 'class_id': class_id,
+                    'date': on_date.isoformat()})
+
+
 @app.route('/api/admin/class-sessions/apply-time-suggestions', methods=['POST'])
 @jwt_required()
 def daily_ops_apply_class_time_suggestions():
@@ -6741,6 +6853,17 @@ def _staff_by_slot(db, day, on_date=None):
         else:
             added.setdefault(key, []).append(dict(row))
 
+    # A class cancelled for this date has no slot to stand in, so whoever the
+    # template or an override put there is free for the day — not "covering",
+    # not stood down, just unassigned, which is what the people view and the
+    # gap warnings then report.
+    cancelled = cancelled_class_ids(db, on_date)
+    for key in [k for k in set(template) | set(added) | set(stood_down)
+                if k[0] == 'class' and k[1] in cancelled]:
+        template.pop(key, None)
+        added.pop(key, None)
+        stood_down.pop(key, None)
+
     out: dict = {}
     for key in set(template) | set(added):
         out_today = {r['counselor_id'] for r in stood_down.get(key, [])}
@@ -6890,14 +7013,18 @@ def daily_ops_list_staff_assignments():
     db = get_db()
     try:
         staff, stood_down = _staff_by_slot(db, day, on_date)
-        classes = db.execute(
+        # A class cancelled for the date has nobody to staff it and nobody
+        # in it; listing it would raise a "class without staff" warning for a
+        # class that is not happening.
+        cancelled = cancelled_class_ids(db, on_date)
+        classes = [r for r in db.execute(
             f"""
             SELECT {_CLASS_COLUMNS} FROM class_sessions
              WHERE active AND day_of_week = %s
              ORDER BY start_time NULLS LAST, lower(name)
             """,
             (day,)
-        ).fetchall()
+        ).fetchall() if r['id'] not in cancelled]
         rules = _care_rules(db, day)
         grade_counts, _ungraded = _roster_grades(db, day)
         rooms = {r['id']: r['name'] for r in db.execute(
@@ -7166,11 +7293,14 @@ def _plan_for_day(db, day, on_date=None):
     up — the plan itself is about the weekday, since registrations, classes
     and care rules are all weekly.
     """
-    # Who comes is the one thing a date can change on its own: a special
-    # day's list replaces the weekly enrollment (registrations_for_date).
-    # Classes and care rules stay weekly.
+    # Two things a date can change on its own: who comes (a special day's
+    # list replaces the weekly enrollment, registrations_for_date), and which
+    # classes run (a class cancelled for the date is left out entirely, so the
+    # engine puts its children in care by grade — the same thing it does for
+    # any child with no class at that hour). Care rules stay weekly.
     regs = (registrations_for_date(db, on_date.isoformat())
             if on_date else 'registrations')
+    cancelled = cancelled_class_ids(db, on_date)
     children = [dict(r) for r in db.execute(
         f"""
         SELECT c.id, c.name, c.grade_num, c.grade_label, c.allergies,
@@ -7190,7 +7320,7 @@ def _plan_for_day(db, day, on_date=None):
          WHERE active AND day_of_week = %s
         """,
         (day,)
-    ).fetchall()]
+    ).fetchall() if r['id'] not in cancelled]
     enrollments = [dict(r) for r in db.execute(
         """
         SELECT e.child_id, e.class_session_id
@@ -7199,7 +7329,7 @@ def _plan_for_day(db, day, on_date=None):
          WHERE cs.active AND cs.day_of_week = %s
         """,
         (day,)
-    ).fetchall()]
+    ).fetchall() if r['class_session_id'] not in cancelled]
     rooms = {r['id']: r['name'] for r in db.execute(
         "SELECT id, name FROM rooms").fetchall()}
 
@@ -7352,6 +7482,30 @@ def daily_ops_daily_board():
             "SELECT id, capacity FROM class_sessions WHERE day_of_week = %s",
             (day,)
         ).fetchall()}
+        cancelled_rows = db.execute(
+            """
+            SELECT cc.class_session_id, cc.reason, cc.cancelled_at,
+                   u.name AS cancelled_by_name,
+                   cs.name, cs.start_time, cs.end_time, cs.location
+              FROM class_cancellations cc
+              JOIN class_sessions cs ON cs.id = cc.class_session_id
+              LEFT JOIN users u ON u.id = cc.cancelled_by
+             WHERE cc.cancel_date = %s
+             ORDER BY cs.start_time NULLS LAST, lower(cs.name)
+            """,
+            (on_date.isoformat(),)
+        ).fetchall()
+        cancelled_enrolled = {}
+        if cancelled_rows:
+            for r in db.execute(
+                """
+                SELECT class_session_id, child_id FROM class_enrollments
+                 WHERE class_session_id = ANY(%s)
+                """,
+                ([r['class_session_id'] for r in cancelled_rows],)
+            ).fetchall():
+                cancelled_enrolled.setdefault(
+                    r['class_session_id'], []).append(r['child_id'])
     finally:
         db.close()
 
@@ -7440,11 +7594,50 @@ def daily_ops_daily_board():
                            for r in stood_down.get(key, [])],
         })
 
+    # ── Classes cancelled for this date ─────────────────────────────────
+    # Each with where its children went instead: the care room the engine
+    # put them in for the block the class would have started in. Only the
+    # children on today's roster — an enrolled child not coming today has
+    # nowhere to be sent.
+    care_at = {}
+    for group in plan['care']:
+        for r in group['children']:
+            care_at[(r['child_id'], group['time_block'])] = group['room_name']
+    sheets_cancelled = []
+    for row in cancelled_rows:
+        start = row['start_time']
+        block = daily_routing.block_of(start) if start else None
+        moved = []
+        for child_id in cancelled_enrolled.get(row['class_session_id'], []):
+            child = by_id.get(child_id)
+            if not child:
+                continue
+            moved.append({
+                'child_id': child_id,
+                'name': child['name'],
+                'grade_label': child.get('grade_label'),
+                'absent': child_id in absent,
+                'goes_to': care_at.get((child_id, block)) if block else None,
+            })
+        moved.sort(key=lambda c: (c['name'] or '').lower())
+        sheets_cancelled.append({
+            'class_id': row['class_session_id'],
+            'name': row['name'],
+            'start_time': _clock_str(row['start_time']),
+            'end_time': _clock_str(row['end_time']),
+            'location': row['location'],
+            'reason': row['reason'],
+            'cancelled_by_name': row['cancelled_by_name'],
+            'cancelled_at': iso_utc(row['cancelled_at']),
+            'children': moved,
+        })
+
     return jsonify({
         'date': on_date.isoformat(),
         'day': day,
         'closed': False,
         'classes': sheets_classes,
+        'cancelled_classes': sheets_cancelled,
         'care': sheets_care,
         'warnings': warnings,
     })

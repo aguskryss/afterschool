@@ -1432,6 +1432,30 @@ def init_db():
         )
     """)
 
+    # One class called off for one date (sql/79): staffing, a sick
+    # instructor, anything. On that date the class does not exist for the
+    # routing engine, so its children fall into the care room their grade
+    # waits in for those hours, the class before it dismisses them to care,
+    # and whoever was staffing it is free. Enrollments are not touched — the
+    # next week the class is simply back. class_session_id is already
+    # per-organization, so the unique needs no organization_id.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS class_cancellations (
+            id SERIAL PRIMARY KEY,
+            class_session_id INTEGER NOT NULL
+                REFERENCES class_sessions(id) ON DELETE CASCADE,
+            cancel_date DATE NOT NULL,
+            reason TEXT,
+            cancelled_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            cancelled_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (class_session_id, cancel_date)
+        )
+    """)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_class_cancellations_date
+            ON class_cancellations (cancel_date)
+    """)
+
     # An upload parses into rows here and writes nothing to children until an
     # admin confirms, so the numbers they approved and the numbers that commit
     # come from one parse rather than two. roster_import_rows.parsed is a second

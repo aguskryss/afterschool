@@ -6,6 +6,43 @@ anteriores quedan abajo, no se borran.
 
 ---
 
+## Sesión del 2026-11-18 — cancelar una clase por un día
+
+Pedido de la directora: cuando una clase se cae un día (personal, lo que sea),
+que los chicos vayan solos al care de su grado. Lo que hizo fue sacar a todos
+de la clase, y eso la vació para todas las semanas. Decisiones (con el
+usuario): **sin aviso a padres**, el counselor de la clase **queda libre** ese
+día, se puede cancelar **cualquier fecha** (pasada o futura).
+
+- **`class_cancellations`** — sql/79 (rollback sql/80), en `TENANT_TABLES`,
+  espejada en `init_db()`. `UNIQUE (class_session_id, cancel_date)`.
+- **`cancelled_class_ids(db, on_date)`** es el único lugar que la lee:
+  - `_plan_for_day` saca la clase y sus enrollments de esa fecha → el motor
+    pone a los chicos en care por grado y la clase anterior los despacha a care.
+    De ahí lo heredan board, My day, "Where to?", emergency check y operations.
+  - `_staff_by_slot` saca el slot `('class', id)` (template, overrides y
+    stood_down) → el counselor queda sin asignación ese día. My day y
+    `_my_slots` (block checks) lo heredan.
+  - La grilla de staff con `?date=` no lista la clase cancelada.
+- Rutas (bajo `/api/admin/class-sessions`, módulo `daily_ops`):
+  `POST …/<id>/cancellations {date, reason?}` (la fecha tiene que caer en el
+  weekday de la clase; repetir actualiza el motivo) y
+  `DELETE …/<id>/cancellations/<YYYY-MM-DD>`.
+- `GET /api/admin/daily-board` suma `cancelled_classes` con motivo, quién, y a
+  qué sala va cada chico anotado que viene ese día (`goes_to`, la sala de care
+  del bloque en que arrancaba la clase).
+- Frontend: `DailyBoard.tsx` — "Cancel for this day" al pie de cada clase y
+  tarjeta tachada con "Restore" arriba de la pestaña Classes.
+- Las vistas semanales (catálogo, exports, conteos de inscriptos) no cambian.
+
+Verificado: `py_compile`, `npx tsc -b`, `npm run build`, tests sin DB. **No**
+corrido contra una base: falta `tests/test_class_cancellations.py` (nuevo),
+`test_daily_board.py`, `test_my_day.py`, `test_staff_assignments.py` y
+`test_tenant_isolation.py`. No hay lista de cancelaciones futuras: se ven
+navegando el Daily Board a esa fecha.
+
+---
+
 ## Sesión del 2026-11-17 — anular una salida registrada por error
 
 Pedido del cliente: si un counselor registra la salida del chico equivocado,

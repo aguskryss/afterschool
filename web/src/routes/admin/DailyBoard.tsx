@@ -1,16 +1,18 @@
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useState, type ReactNode } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowRight,
+  Ban,
   CalendarOff,
   ChevronLeft,
   ChevronRight,
   CircleAlert,
   TriangleAlert,
+  Undo2,
 } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
 import { hasAllergy } from '@/lib/roster'
-import { Card, EmptyState, Pill, Skeleton } from '@/components/ui'
+import { Button, Card, EmptyState, Pill, Skeleton } from '@/components/ui'
 
 const BLOCK_LABEL: Record<string, string> = {
   '3-4': '3p – 4p',
@@ -63,6 +65,26 @@ type CareBlock = {
   stood_down: (string | null)[]
 }
 
+/** A class called off for this date, and where its children went instead. */
+type CancelledClass = {
+  class_id: number
+  name: string
+  start_time: string | null
+  end_time: string | null
+  location: string | null
+  reason: string | null
+  cancelled_by_name: string | null
+  cancelled_at: string
+  children: {
+    child_id: number
+    name: string
+    grade_label: string | null
+    absent: boolean
+    /** The care room the engine put them in for the class's hours. */
+    goes_to: string | null
+  }[]
+}
+
 type Warning = {
   code: string
   label?: string | null
@@ -76,6 +98,7 @@ type Board = {
   day: string
   closed: boolean
   classes: ClassBlock[]
+  cancelled_classes?: CancelledClass[]
   care: CareBlock[]
   warnings: Warning[]
 }
@@ -302,30 +325,40 @@ export function AdminDailyBoard() {
           </div>
 
           {tab === 'classes' ? (
-            data.classes.length === 0 ? (
-              <EmptyState
-                icon={<CalendarOff className="size-7" strokeWidth={1.8} />}
-                title="No classes this day"
-              />
-            ) : (
-              <div className="flex flex-col gap-4">
-                {data.classes.map((block) => (
-                  <Sheet
-                    key={block.class_id}
-                    title={block.name}
-                    detail={`${clock(block.start_time)}–${clock(block.end_time)}${
-                      block.location ? ` · ${block.location}` : ''
-                    }`}
-                    staff={block.staff}
-                    present={block.present_count}
-                    capacity={block.capacity}
-                    columns={['School', 'Name', 'Gr', 'From', 'Out', 'Dismiss to']}
-                    rows={block.children}
-                    kind="classes"
-                  />
-                ))}
-              </div>
-            )
+            <div className="flex flex-col gap-4">
+              {(data.cancelled_classes ?? []).map((c) => (
+                <CancelledSheet key={c.class_id} date={date} cancelled={c} />
+              ))}
+              {data.classes.length === 0
+                ? (data.cancelled_classes ?? []).length === 0 && (
+                    <EmptyState
+                      icon={<CalendarOff className="size-7" strokeWidth={1.8} />}
+                      title="No classes this day"
+                    />
+                  )
+                : data.classes.map((block) => (
+                    <Sheet
+                      key={block.class_id}
+                      title={block.name}
+                      detail={`${clock(block.start_time)}–${clock(block.end_time)}${
+                        block.location ? ` · ${block.location}` : ''
+                      }`}
+                      staff={block.staff}
+                      present={block.present_count}
+                      capacity={block.capacity}
+                      columns={['School', 'Name', 'Gr', 'From', 'Out', 'Dismiss to']}
+                      rows={block.children}
+                      kind="classes"
+                      footer={
+                        <CancelForDay
+                          date={date}
+                          classId={block.class_id}
+                          name={block.name}
+                        />
+                      }
+                    />
+                  ))}
+            </div>
           ) : data.care.length === 0 ? (
             <EmptyState
               icon={<CalendarOff className="size-7" strokeWidth={1.8} />}
@@ -372,6 +405,7 @@ function Sheet({
   columns,
   rows,
   kind,
+  footer,
 }: {
   title: string
   detail: string
@@ -382,6 +416,7 @@ function Sheet({
   columns: string[]
   rows: Child[]
   kind: 'classes' | 'care'
+  footer?: ReactNode
 }) {
   const over = capacity != null && present > capacity
   return (
@@ -546,6 +581,186 @@ function Sheet({
             </tbody>
           </table>
         </div>
+      )}
+      {footer}
+    </Card>
+  )
+}
+
+function errorText(e: unknown, fallback: string): string {
+  return e instanceof ApiError ? e.message : fallback
+}
+
+/**
+ * Call off one class for the date on screen. Its roster is untouched — the
+ * children wait in their grade's care room for those hours, its staff are
+ * free, and next week it is back. Families are not notified.
+ */
+function CancelForDay({
+  date,
+  classId,
+  name,
+}: {
+  date: string
+  classId: number
+  name: string
+}) {
+  const qc = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState('')
+
+  const cancel = useMutation({
+    mutationFn: () =>
+      api(`/api/admin/class-sessions/${classId}/cancellations`, {
+        method: 'POST',
+        body: { date, reason: reason.trim() || null },
+      }),
+    onSuccess: () => {
+      setOpen(false)
+      setReason('')
+      void qc.invalidateQueries({ queryKey: ['admin', 'daily-board', date] })
+    },
+  })
+
+  if (!open) {
+    return (
+      <div className="flex justify-end border-t border-canvas-200 px-4 py-2">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex items-center gap-1.5 text-[0.82rem] font-bold text-ink-500 hover:text-berry-600"
+        >
+          <Ban className="size-3.5" strokeWidth={2.6} />
+          Cancel for this day
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="border-t border-canvas-200 bg-berry-50 px-4 py-3">
+      <p className="text-[0.88rem] font-bold text-berry-700">
+        Cancel “{name}” on {longDate(date)}?
+      </p>
+      <p className="mt-0.5 text-[0.82rem] font-medium text-ink-600">
+        Its children go to the care room for their grade during those hours,
+        and whoever runs it is free that day. Enrollments stay as they are —
+        next week the class is back. Families are not notified.
+      </p>
+      <input
+        type="text"
+        value={reason}
+        maxLength={300}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder="Reason (optional) — e.g. instructor out sick"
+        aria-label="Reason"
+        className="mt-2 h-10 w-full rounded-2xl border-2 border-canvas-200 bg-white px-4 text-[0.88rem] font-medium text-ink-900 outline-none focus:border-sky-500"
+      />
+      {cancel.error && (
+        <p className="mt-2 text-[0.82rem] font-semibold text-berry-600">
+          {errorText(cancel.error, 'Could not cancel the class.')}
+        </p>
+      )}
+      <div className="mt-2 flex justify-end gap-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setOpen(false)
+            cancel.reset()
+          }}
+        >
+          Keep it
+        </Button>
+        <Button
+          variant="danger"
+          size="sm"
+          loading={cancel.isPending}
+          onClick={() => cancel.mutate()}
+        >
+          Cancel class
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/** A class called off for this date: why, and where each child went. */
+function CancelledSheet({
+  date,
+  cancelled,
+}: {
+  date: string
+  cancelled: CancelledClass
+}) {
+  const qc = useQueryClient()
+  const restore = useMutation({
+    mutationFn: () =>
+      api(
+        `/api/admin/class-sessions/${cancelled.class_id}/cancellations/${date}`,
+        { method: 'DELETE' },
+      ),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: ['admin', 'daily-board', date] }),
+  })
+
+  return (
+    <Card className="overflow-hidden border-2 border-berry-100">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 bg-berry-50 px-4 py-3">
+        <p className="text-[1.05rem] font-extrabold text-ink-400 line-through">
+          {cancelled.name}
+        </p>
+        <Pill status="berry">Cancelled</Pill>
+        <p className="text-[0.85rem] font-bold text-ink-500">
+          {clock(cancelled.start_time)}–{clock(cancelled.end_time)}
+          {cancelled.location ? ` · ${cancelled.location}` : ''}
+        </p>
+        <p className="min-w-0 flex-1 text-[0.85rem] font-semibold text-ink-600">
+          {cancelled.reason ?? 'No reason given'}
+          {cancelled.cancelled_by_name && (
+            <span className="text-ink-400"> · by {cancelled.cancelled_by_name}</span>
+          )}
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          loading={restore.isPending}
+          onClick={() => restore.mutate()}
+        >
+          <Undo2 className="size-4" strokeWidth={2.4} />
+          Restore
+        </Button>
+      </div>
+      {restore.error && (
+        <p className="px-4 pt-2 text-[0.82rem] font-semibold text-berry-600">
+          {errorText(restore.error, 'Could not restore the class.')}
+        </p>
+      )}
+      {cancelled.children.length === 0 ? (
+        <p className="px-4 py-3 text-[0.88rem] font-semibold text-ink-400">
+          Nobody enrolled was coming this day.
+        </p>
+      ) : (
+        <ul className="flex flex-wrap gap-x-5 gap-y-1.5 px-4 py-3 text-[0.86rem]">
+          {cancelled.children.map((c) => (
+            <li
+              key={c.child_id}
+              className={`inline-flex items-center gap-1.5 ${c.absent ? 'opacity-55' : ''}`}
+            >
+              <span className="font-bold text-ink-900">{c.name}</span>
+              {c.grade_label && (
+                <span className="font-semibold text-ink-400">{c.grade_label}</span>
+              )}
+              <ArrowRight className="size-3.5 text-ink-400" strokeWidth={2.6} />
+              {c.goes_to ? (
+                <span className="font-bold text-ink-700">{c.goes_to}</span>
+              ) : (
+                <span className="font-bold text-sun-700">no care room</span>
+              )}
+              {c.absent && <Pill status="berry">absent</Pill>}
+            </li>
+          ))}
+        </ul>
       )}
     </Card>
   )

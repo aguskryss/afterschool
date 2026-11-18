@@ -434,6 +434,8 @@ TENANT_TABLES = (
     # names a real child and whether they ride the bus that day.
     'special_days',
     'special_day_children',
+    # One class called off for one date (sql/79).
+    'class_cancellations',
 )
 
 # Deliberately global, not tenant-scoped:
