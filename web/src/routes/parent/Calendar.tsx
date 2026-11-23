@@ -68,6 +68,13 @@ export function ParentCalendar() {
     return map
   }, [events])
 
+  // A "Closed" day expects nobody, so it isn't an attending day and there's
+  // nothing to be absent from — the server refuses an absence on one too.
+  const closedDates = useMemo(
+    () => new Set((events ?? []).filter((e) => e.event_type === 'closed').map((e) => e.event_date)),
+    [events],
+  )
+
   // Leading blanks so the 1st lands under its real weekday.
   const firstWeekday = new Date(year, month, 1).getDay()
   const daysInMonth = new Date(year, month + 1, 0).getDate()
@@ -178,8 +185,9 @@ export function ParentCalendar() {
             if (day === null) return <div key={`b${i}`} />
             const date = iso(year, month, day)
             const weekday = WEEKDAYS[new Date(year, month, day).getDay()]
-            const attends = child.registered_days.includes(weekday)
-            const absence = absenceOn(child, date)
+            const closed = closedDates.has(date)
+            const attends = child.registered_days.includes(weekday) && !closed
+            const absence = closed ? undefined : absenceOn(child, date)
             const absent = Boolean(absence)
             // Only one-off absences toggle off here; a recurring day has to be
             // undone through its rule, so tapping it must not silently no-op.
@@ -193,7 +201,7 @@ export function ParentCalendar() {
                 key={date}
                 type="button"
                 disabled={!attends || past || locked}
-                aria-label={`${date}${absent ? ' — absent' : ''}`}
+                aria-label={`${date}${closed ? ' — program closed' : absent ? ' — absent' : ''}`}
                 aria-pressed={absent}
                 onClick={() =>
                   toggleAbsence.mutate({ date, absent: !absent })
@@ -205,7 +213,9 @@ export function ParentCalendar() {
                       ? 'bg-leaf-50 text-leaf-600 hover:bg-leaf-100'
                       : attends
                         ? 'bg-canvas-100 text-ink-400'
-                        : 'text-ink-300'
+                        : closed
+                          ? 'bg-canvas-100 text-ink-300 line-through'
+                          : 'text-ink-300'
                 } ${isToday ? 'ring-2 ring-sky-500 ring-inset' : ''}`}
               >
                 {day}
@@ -229,6 +239,10 @@ export function ParentCalendar() {
           <span className="flex items-center gap-1.5">
             <span className="size-3 rounded-md bg-berry-500" />
             Absent
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="size-3 rounded-md bg-canvas-100" />
+            <span className="line-through">Closed</span>
           </span>
           <span className="flex items-center gap-1.5">
             <span className="size-1.5 rounded-full bg-sun-500" />

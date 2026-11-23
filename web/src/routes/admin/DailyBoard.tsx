@@ -97,6 +97,8 @@ type Board = {
   date: string
   day: string
   closed: boolean
+  /** Set when the calendar marks the date "Closed"; absent on a weekend. */
+  closure?: { title: string; description: string | null }
   classes: ClassBlock[]
   cancelled_classes?: CancelledClass[]
   care: CareBlock[]
@@ -300,8 +302,8 @@ export function AdminDailyBoard() {
       ) : !data ? null : data.closed ? (
         <EmptyState
           icon={<CalendarOff className="size-7" strokeWidth={1.8} />}
-          title="The program does not run this day"
-          body="Pick a weekday to see its sheets."
+          title={data.closure ? `Closed — ${data.closure.title}` : 'The program does not run this day'}
+          body={data.closure ? data.closure.description || 'The calendar marks this day closed, so nobody is expected.' : 'Pick a weekday to see its sheets.'}
         />
       ) : (
         <>

@@ -6,6 +6,31 @@ anteriores quedan abajo, no se borran.
 
 ---
 
+## Sesión del 2026-11-23 — el "Closed" del calendario cierra el día
+
+Pedido del cliente: si cierran un día entero, marcar a todos ausentes. Decisión
+(con el usuario): **no** crear una ausencia por chico (ensucia reportes y hay
+que limpiarla si se reabre); el evento `closed` de `calendar_events` pasa a
+cerrar el día en toda la app. Antes solo lo leía la recuperación de clases.
+
+- **`closure_for_date(db, date)`** (`server/app.py`, junto a
+  `cancelled_class_ids`) es el único lugar que lo lee. Devuelve
+  `{title, description}` o `None`.
+- `_run_attendance_check`: un día cerrado no le pregunta a nadie (devuelve 0).
+- `POST /api/counselor/notify-parent` y `POST /api/parent/absences`: 409.
+- `GET /api/admin/daily-board`, `/api/counselor/my-day`: `closed: true` +
+  `closure`. `GET /api/admin/operations`: `closure` y `schools: []`.
+- Frontend: DailyBoard, MyDay y LiveBoard muestran "Closed — {título}"; el
+  calendario del padre tacha el día y no deja marcar ausencia.
+- Sin cambios de schema. Borrar el evento reabre el día en todos lados.
+- No tocado: `/api/counselor/attendance` (roster por fecha), exports, y el
+  pickup del padre — en un día cerrado nadie los usa.
+
+Verificado: `py_compile`, `tsc -b`, build, `test_module_access`. **No** corrido
+contra una base.
+
+---
+
 ## Sesión del 2026-11-18 — cancelar una clase por un día
 
 Pedido de la directora: cuando una clase se cae un día (personal, lo que sea),

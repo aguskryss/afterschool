@@ -183,6 +183,30 @@ def registrations_for_date(db, date_str):
                  WHERE sd.id = {int(special['id'])})"""
 
 
+def closure_for_date(db, on_date):
+    """The calendar's "Closed" event for one date, or None if the program runs.
+
+    The one place that answers "is the program closed this day?". A closure is
+    a whole-day fact, not an absence per child: nobody is expected, nobody is
+    asked whether they're coming, and nobody shows up as missing. Every
+    date-bound screen and job checks here rather than reading calendar_events
+    itself, so deleting the event reopens the day everywhere at once.
+
+    Accepts a date or a 'YYYY-MM-DD' string (calendar_events.event_date is
+    TEXT). Returns {'title', 'description'} for the screen to show.
+    """
+    if on_date is None:
+        return None
+    key = on_date.isoformat() if hasattr(on_date, 'isoformat') else str(on_date)
+    row = db.execute(
+        "SELECT title, description FROM calendar_events "
+        " WHERE event_date = %s AND event_type = 'closed' "
+        " ORDER BY id LIMIT 1",
+        (key,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
 def cancelled_class_ids(db, on_date):
     """The classes called off on one date (sql/79), as a set of ids.
 
@@ -1776,6 +1800,12 @@ def parent_mark_absence():
     if not parent_owns_child(db, user_id, child_id):
         db.close()
         return jsonify({'error': 'Child not found'}), 404
+    # Nobody is expected on a closed day, so there is nothing to be absent
+    # from — and an absence row would show up as a real one in the reports.
+    if closure_for_date(db, absence_date):
+        db.close()
+        return jsonify({'error': 'The program is closed that day — no need '
+                                 'to report an absence'}), 409
 
     try:
         # Marking a one-off absence overrides any prior "attending this day"
@@ -7474,6 +7504,11 @@ def daily_ops_daily_board():
 
     db = get_db()
     try:
+        closure = closure_for_date(db, on_date)
+        if closure:
+            return jsonify({'date': on_date.isoformat(), 'day': day,
+                            'closed': True, 'closure': closure,
+                            'classes': [], 'care': [], 'warnings': []})
         plan, by_id, rooms, absent, released = _plan_for_day(db, day, on_date)
         staff, stood_down = _staff_by_slot(db, day, on_date)
         rules = _care_rules(db, day)
@@ -7672,6 +7707,10 @@ def counselor_my_day():
 
     db = get_db()
     try:
+        closure = closure_for_date(db, on_date)
+        if closure:
+            return jsonify({'date': on_date.isoformat(), 'day': day,
+                            'blocks': [], 'closed': True, 'closure': closure})
         in_effect, _stood_down = _staff_by_slot(db, day, on_date)
         mine = {slot: rows for slot, rows in in_effect.items()
                 if any(r['counselor_id'] == me for r in rows)}
@@ -8650,6 +8689,11 @@ def admin_operations():
         return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD.'}), 400
     db = get_db()
     try:
+        closure = closure_for_date(db, date_str)
+        if closure:
+            return jsonify({'date': date_str, 'closure': closure,
+                            'every_counselor_covers_every_school': False,
+                            'schools': []})
         schools = _operations_snapshot(db, date_str)
         # True when no counselor anywhere has an assignment, which is the
         # fail-open state rather than an unstaffed program.
@@ -9409,6 +9453,9 @@ def counselor_notify_parent():
         return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD.'}), 400
 
     db = get_db()
+    if closure_for_date(db, notification_date):
+        db.close()
+        return jsonify({'error': 'The program is closed that day'}), 409
     child = db.execute("""
         SELECT c.name as child_name, c.parent_id
         FROM children c
@@ -10207,6 +10254,15 @@ def _run_attendance_check(organization_id):
 
     db = get_db_transaction()
     try:
+        # A closed day expects nobody, so there is nobody to ask. Without this
+        # every family gets "is your child coming today?" on the day the JCC
+        # told them it's shut.
+        if closure_for_date(db, check_date):
+            print(f"[ATTENDANCE_CHECK] {check_date} is a closed day; "
+                  f"no parents asked")
+            db.rollback()
+            return 0
+
         # Today's list, special or weekly: on an early dismissal, a family
         # whose child is not on the admin's list is not asked about them.
         pending = db.execute(f"""

@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronRight, School, TriangleAlert, UserRound } from 'lucide-react'
+import { CalendarOff, ChevronRight, School, TriangleAlert, UserRound } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
 import { readSession } from '@/lib/auth'
 import { notifyError } from '@/lib/confirm'
@@ -38,6 +38,8 @@ type Board = {
   /** Nobody has any assignment, so everyone covers everything. */
   every_counselor_covers_every_school: boolean
   schools: SchoolRow[]
+  /** Set when the calendar marks today "Closed": nobody is expected. */
+  closure?: { title: string; description: string | null }
 }
 
 /**
@@ -163,11 +165,21 @@ export function AdminLiveBoard() {
       <p className="mb-6 text-[0.95rem] font-medium text-ink-500">
         {isPending
           ? 'Loading the afternoon…'
-          : `${totals.in_building} of ${totals.expected} in the building · ${totals.waiting} still out`}
+          : data?.closure
+            ? 'The program is closed today'
+            : `${totals.in_building} of ${totals.expected} in the building · ${totals.waiting} still out`}
       </p>
 
       {isPending ? (
         <Skeleton className="h-64" />
+      ) : data?.closure ? (
+        <Card>
+          <EmptyState
+            icon={<CalendarOff className="size-7" strokeWidth={1.8} />}
+            title={`Closed — ${data.closure.title}`}
+            body={data.closure.description || 'The calendar marks today closed, so nobody is expected.'}
+          />
+        </Card>
       ) : (
         <>
           {allFlags.length > 0 && (
