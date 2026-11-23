@@ -10497,6 +10497,48 @@ def admin_list_messages():
     return jsonify(out)
 
 
+@app.route('/api/admin/messages/<int:msg_id>/recipients', methods=['GET'])
+@jwt_required()
+def admin_message_recipients(msg_id):
+    """Who a broadcast went to, and which of them have opened it.
+
+    "Opened" is the parent expanding that one message in their inbox
+    (`parent_mark_message_read`), not merely loading the inbox — the list is
+    what an admin works through to chase the families that haven't seen it,
+    so a read has to mean that message was actually looked at.
+    """
+    if not require_admin():
+        return jsonify({'error': 'Unauthorized'}), 403
+    db = get_db()
+    exists = db.execute(
+        "SELECT 1 FROM admin_messages WHERE id = %s", (msg_id,)
+    ).fetchone()
+    if not exists:
+        db.close()
+        return jsonify({'error': 'Message not found'}), 404
+    rows = db.execute("""
+        SELECT u.id AS parent_id, u.name, u.email, u.phone, pm.read_at,
+               COALESCE(
+                 (SELECT json_agg(c.name ORDER BY c.name)
+                  FROM children c
+                  WHERE c.parent_id = u.id AND c.active = 1), '[]'
+               ) AS children
+        FROM parent_messages pm
+        JOIN users u ON u.id = pm.parent_id
+        WHERE pm.admin_message_id = %s
+        ORDER BY pm.read_at IS NOT NULL, u.name
+    """, (msg_id,)).fetchall()
+    db.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d['read_at'] = iso_utc(d['read_at'])
+        if isinstance(d['children'], str):
+            d['children'] = json.loads(d['children'])
+        out.append(d)
+    return jsonify(out)
+
+
 @app.route('/api/parent/messages', methods=['GET'])
 @jwt_required()
 def parent_list_messages():
@@ -10561,6 +10603,32 @@ def parent_mark_all_read():
     db.commit()
     db.close()
     return jsonify({'message': 'All messages marked as read'})
+
+
+@app.route('/api/parent/messages/<int:pm_id>/read', methods=['POST'])
+@jwt_required()
+def parent_mark_message_read(pm_id):
+    """The read receipt for one announcement: the parent opened it.
+
+    Idempotent — only the first open sets read_at, so the admin sees when the
+    parent first read it, not when they last scrolled past it.
+    """
+    claims = get_jwt()
+    if claims.get('role') != 'parent':
+        return jsonify({'error': 'Unauthorized'}), 403
+    user_id = get_jwt_identity()
+    db = get_db()
+    row = db.execute("""
+        UPDATE parent_messages
+        SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+        WHERE id = %s AND parent_id = %s AND deleted_at IS NULL
+        RETURNING read_at
+    """, (pm_id, user_id)).fetchone()
+    db.commit()
+    db.close()
+    if not row:
+        return jsonify({'error': 'Message not found'}), 404
+    return jsonify({'read_at': iso_utc(row['read_at'])})
 
 
 @app.route('/api/parent/messages/<int:pm_id>', methods=['DELETE'])

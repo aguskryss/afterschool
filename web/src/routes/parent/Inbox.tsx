@@ -45,11 +45,24 @@ function Announcements() {
     queryFn: () => api<Message[]>('/api/parent/messages'),
   })
 
-  const markAllRead = useMutation({
-    mutationFn: () =>
-      api('/api/parent/messages/mark-all-read', { method: 'POST' }),
+  // The read receipt is per message: it's set when the parent expands that
+  // one announcement. The office sees, per message, which families opened it
+  // and which didn't — and chases the second list — so loading the inbox
+  // can't count as reading everything in it.
+  const markRead = useMutation({
+    mutationFn: (id: number) =>
+      api(`/api/parent/messages/${id}/read`, { method: 'POST' }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['parent'] }),
   })
+
+  const toggle = (m: Message) => {
+    if (open === m.id) {
+      setOpen(null)
+      return
+    }
+    setOpen(m.id)
+    if (!m.read_at) markRead.mutate(m.id)
+  }
 
   const remove = useMutation({
     mutationFn: (id: number) =>
@@ -58,15 +71,6 @@ function Announcements() {
       void qc.invalidateQueries({ queryKey: ['parent', 'messages'] }),
   })
 
-  // Opening the inbox is the read receipt — there's no per-message read
-  // endpoint, and leaving a badge up after someone has plainly looked at the
-  // list is just noise.
-  const unread = messages?.some((m) => !m.read_at)
-  useEffect(() => {
-    if (unread && !markAllRead.isPending && !markAllRead.isSuccess) {
-      markAllRead.mutate()
-    }
-  }, [unread, markAllRead])
 
   if (isPending) return <Skeleton className="h-40" />
   if (!messages?.length) {
@@ -92,7 +96,7 @@ function Announcements() {
                 <button
                   type="button"
                   aria-expanded={expanded}
-                  onClick={() => setOpen(expanded ? null : m.id)}
+                  onClick={() => toggle(m)}
                   className="min-w-0 flex-1 px-4 py-3.5 text-left transition-colors hover:bg-canvas-100"
                 >
                   <div className="flex items-baseline justify-between gap-3">

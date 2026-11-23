@@ -335,6 +335,93 @@ type Message = {
 
 type School = { id: number; name: string }
 
+type Recipient = {
+  parent_id: number
+  name: string
+  email: string
+  phone: string | null
+  read_at: string | null
+  children: string[]
+}
+
+/**
+ * Who a broadcast reached, split into opened / not opened. "Opened" means the
+ * parent expanded this message in their inbox — the not-opened tab is the
+ * list an admin calls down, so it has to be exact.
+ */
+function RecipientList({ messageId }: { messageId: number }) {
+  const [tab, setTab] = useState<'unread' | 'read'>('unread')
+  const { data, isPending, isError } = useQuery({
+    queryKey: ['admin', 'messages', messageId, 'recipients'],
+    queryFn: () => api<Recipient[]>(`/api/admin/messages/${messageId}/recipients`),
+  })
+
+  if (isPending) {
+    return <Card className="p-4 text-[0.88rem] font-semibold text-ink-400">Loading recipients…</Card>
+  }
+  if (isError) {
+    return <Card className="p-4 text-[0.88rem] font-semibold text-berry-500">Couldn't load recipients.</Card>
+  }
+
+  const read = data.filter((r) => r.read_at)
+  const unread = data.filter((r) => !r.read_at)
+  const shown = tab === 'read' ? read : unread
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex border-b border-canvas-200">
+        {(
+          [
+            ['unread', `Not opened (${unread.length})`],
+            ['read', `Opened (${read.length})`],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className={`flex-1 px-4 py-2.5 text-[0.85rem] font-bold transition-colors ${
+              tab === key
+                ? 'border-b-2 border-ink-900 text-ink-900'
+                : 'text-ink-400 hover:text-ink-700'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {shown.length === 0 ? (
+        <p className="p-4 text-[0.88rem] font-semibold text-ink-400">
+          {tab === 'unread' ? 'Every parent has opened this message.' : 'No one has opened it yet.'}
+        </p>
+      ) : (
+        <ul className="divide-y divide-canvas-200">
+          {shown.map((r) => (
+            <li key={r.parent_id} className="flex items-start justify-between gap-3 px-4 py-2.5">
+              <div className="min-w-0">
+                <p className="truncate text-[0.9rem] font-bold text-ink-900">{r.name}</p>
+                <p className="truncate text-[0.78rem] font-medium text-ink-500">
+                  {r.children.length ? r.children.join(', ') : r.email}
+                </p>
+              </div>
+              <span className="shrink-0 text-right text-[0.78rem] font-semibold text-ink-400">
+                {r.read_at
+                  ? new Date(r.read_at).toLocaleString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                    })
+                  : r.phone || r.email}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  )
+}
+
 /**
  * Compose a broadcast.
  *
@@ -603,6 +690,8 @@ function MessageDetail({ message, onClose }: { message: Message; onClose: () => 
               </div>
             )}
           </Card>
+
+          <RecipientList messageId={message.id} />
         </div>
       </aside>
     </div>
